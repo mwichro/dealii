@@ -3253,23 +3253,18 @@ namespace FETools
                              const bool         &cell_hierarchical_numbering,
                              const bool         &is_continuous)
   {
-    AssertThrow(dim > 1, FETools::ExcInvalidDirection(1, dim));
-    AssertThrow(direction < dim, FETools::ExcInvalidDirection(direction, dim));
-    AssertThrow(
-      !cell_hierarchical_numbering,
-      ExcNotImplemented(
-        "Hierarchical numbering not implemented for cell_to_face_lexicographic"));
+    AssertThrow(dim > 1, ExcInvalidFEDimension(1, dim));
+    AssertThrow(direction < dim, ExcInvalidFEDimension(direction, dim));
 
     // n_1d: DoFs per 1D edge (parallel to face)
     const unsigned int n_1d = degree + 1;
     // n_ort: DoFs in the direction orthogonal to the face in the combined face
     // space For discontinuous: 2*n (n for cell0 face, n for cell1 face) For
     // continuous: 2*n - 1 (shared DoFs)
-    const unsigned int n_ort_1d = 2 * n - (is_continuous ? 1 : 0);
+    const unsigned int n_ort_1d = 2 * n_1d - (is_continuous ? 1 : 0);
 
-    const unsigned int dofs_per_cell = Utilities::fixed_power<dim>(n_1d);
-    const unsigned int dofs_per_face =
-      Utilities::fixed_power<dim - 1>(n_1d) * n_ort_1d;
+    const unsigned int dofs_per_cell = fixed_power(n_1d, dim);
+    const unsigned int dofs_per_face = fixed_power(n_1d, dim - 1) * n_ort_1d;
 
     std::array<unsigned int, dim> face_dofs_in_direction;
     for (unsigned int d = 0; d < dim; ++d)
@@ -3279,9 +3274,11 @@ namespace FETools
 
 
     // Initialize maps for cell0 and cell1 DoFs to face DoFs
-    std::array<std::vector<unsigned int>, 2> results(
-      std::vector<unsigned int>(dofs_per_cell, numbers::invalid_unsigned_int));
+    std::array<std::vector<unsigned int>, 2> results;
+    results[0].resize(dofs_per_cell, numbers::invalid_unsigned_int);
+    results[1].resize(dofs_per_cell, numbers::invalid_unsigned_int);
 
+    // Compute with lexicographic first
     for (unsigned int i = 0; i < dofs_per_face; ++i)
       {
         // Decompose i into multiindex
@@ -3297,19 +3294,55 @@ namespace FETools
 
         // compute corresponding cell
         unsigned int cell          = face_multiindex[direction] / n_1d;
-        cell_multiindex[direction] = face_dofs_in_direction[direction] % n_1d;
+        cell_multiindex[direction] = face_multiindex[direction] % n_1d;
+        if (is_continuous)
+          cell_multiindex[direction] += cell;
 
-        unsigned int cell_index = 0;
-        unsigned int stride     = 1;
-        for (unsigned int d = 0; d < dim; ++d)
+        {
+          unsigned int cell_index = 0;
+          unsigned int stride     = 1;
+          for (unsigned int d = 0; d < dim; ++d)
+            {
+              cell_index += cell_multiindex[d] * stride;
+              stride *= n_1d;
+            }
+          results[cell][cell_index] = i;
+          std::cout << cell_multiindex[0] << std::endl;
+        }
+
+        if (cell_multiindex[direction] == n_1d - 1 && is_continuous)
           {
-            cell_index += cell_multiindex[d] * stride;
-            stride *= n_1d;
+            // fill the other cell
+            unsigned other_cell        = 1;
+            cell_multiindex[direction] = 0;
+            unsigned int cell_index    = 0;
+            unsigned int stride        = 1;
+            for (unsigned int d = 0; d < dim; ++d)
+              {
+                cell_index += cell_multiindex[d] * stride;
+                stride *= n_1d;
+              }
+            results[other_cell][cell_index] = i;
           }
-        results[cell][i] = cell_index;
+      }
+    // Now we have the DoFs in lexicographic order
+    if (!cell_hierarchical_numbering)
+      return std::make_pair(results[0], results[1]);
+
+    // Renumbering required for hierarchical numbering
+    std::vector<unsigned int> lex_to_hie =
+      lexicographic_to_hierarchic_numbering(degree);
+
+    for (auto &result : results)
+      {
+        std::vector<unsigned int> renumbered_result = result;
+        for (unsigned int i = 0; i < dofs_per_cell; ++i)
+          renumbered_result[lex_to_hie[i]] = result[i];
+        result = renumbered_result;
       }
     return std::make_pair(results[0], results[1]);
   }
+
 } // namespace FETools
 
 
