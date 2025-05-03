@@ -2471,6 +2471,7 @@ namespace DoFRenumbering
     std::vector<std::pair<types::global_dof_index, Point<dim>>>
       dof_location_vector;
 
+    dof_location_vector.reserve(dof_location_map.size());
     for (const auto &s : dof_location_map)
       dof_location_vector.push_back(s);
 
