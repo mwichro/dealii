@@ -3263,8 +3263,9 @@ namespace FETools
     // continuous: 2*n - 1 (shared DoFs)
     const unsigned int n_ort_1d = 2 * n_1d - (is_continuous ? 1 : 0);
 
-    const unsigned int dofs_per_cell = fixed_power(n_1d, dim);
-    const unsigned int dofs_per_face = fixed_power(n_1d, dim - 1) * n_ort_1d;
+    const unsigned int dofs_per_cell = Utilities::fixed_power<dim>(n_1d);
+    const unsigned int dofs_per_face =
+      Utilities::fixed_power<dim - 1>(n_1d) * n_ort_1d;
 
     std::array<unsigned int, dim> face_dofs_in_direction;
     for (unsigned int d = 0; d < dim; ++d)
@@ -3307,10 +3308,9 @@ namespace FETools
               stride *= n_1d;
             }
           results[cell][cell_index] = i;
-          std::cout << cell_multiindex[0] << std::endl;
         }
 
-        if (cell_multiindex[direction] == n_1d - 1 && is_continuous)
+        if (face_multiindex[direction] == n_1d - 1 && is_continuous)
           {
             // fill the other cell
             unsigned other_cell        = 1;
@@ -3331,7 +3331,7 @@ namespace FETools
 
     // Renumbering required for hierarchical numbering
     std::vector<unsigned int> lex_to_hie =
-      lexicographic_to_hierarchic_numbering(degree);
+      lexicographic_to_hierarchic_numbering<dim>(degree);
 
     for (auto &result : results)
       {
