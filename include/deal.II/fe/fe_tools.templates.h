@@ -3243,6 +3243,73 @@ namespace FETools
     return Utilities::invert_permutation(
       hierarchic_to_lexicographic_numbering<dim>(degree));
   }
+
+
+
+  template <int dim>
+  std::pair<std::vector<unsigned int>, std::vector<unsigned int>>
+  cell_to_face_lexicographic(const unsigned int &degree,
+                             const unsigned int &direction,
+                             const bool         &cell_hierarchical_numbering,
+                             const bool         &is_continuous)
+  {
+    AssertThrow(dim > 1, FETools::ExcInvalidDirection(1, dim));
+    AssertThrow(direction < dim, FETools::ExcInvalidDirection(direction, dim));
+    AssertThrow(
+      !cell_hierarchical_numbering,
+      ExcNotImplemented(
+        "Hierarchical numbering not implemented for cell_to_face_lexicographic"));
+
+    // n_1d: DoFs per 1D edge (parallel to face)
+    const unsigned int n_1d = degree + 1;
+    // n_ort: DoFs in the direction orthogonal to the face in the combined face
+    // space For discontinuous: 2*n (n for cell0 face, n for cell1 face) For
+    // continuous: 2*n - 1 (shared DoFs)
+    const unsigned int n_ort_1d = 2 * n - (is_continuous ? 1 : 0);
+
+    const unsigned int dofs_per_cell = Utilities::fixed_power<dim>(n_1d);
+    const unsigned int dofs_per_face =
+      Utilities::fixed_power<dim - 1>(n_1d) * n_ort_1d;
+
+    std::array<unsigned int, dim> face_dofs_in_direction;
+    for (unsigned int d = 0; d < dim; ++d)
+      face_dofs_in_direction[d] = n_1d;
+    face_dofs_in_direction[direction] = n_ort_1d;
+
+
+
+    // Initialize maps for cell0 and cell1 DoFs to face DoFs
+    std::array<std::vector<unsigned int>, 2> results(
+      std::vector<unsigned int>(dofs_per_cell, numbers::invalid_unsigned_int));
+
+    for (unsigned int i = 0; i < dofs_per_face; ++i)
+      {
+        // Decompose i into multiindex
+        std::array<unsigned int, dim> face_multiindex;
+        unsigned int                  temp = i;
+        for (unsigned int d = 0; d < dim; ++d)
+          {
+            face_multiindex[d] = temp % face_dofs_in_direction[d];
+            temp /= face_dofs_in_direction[d];
+          }
+
+        std::array<unsigned int, dim> cell_multiindex = face_multiindex;
+
+        // compute corresponding cell
+        unsigned int cell          = face_multiindex[direction] / n_1d;
+        cell_multiindex[direction] = face_dofs_in_direction[direction] % n_1d;
+
+        unsigned int cell_index = 0;
+        unsigned int stride     = 1;
+        for (unsigned int d = 0; d < dim; ++d)
+          {
+            cell_index += cell_multiindex[d] * stride;
+            stride *= n_1d;
+          }
+        results[cell][i] = cell_index;
+      }
+    return std::make_pair(results[0], results[1]);
+  }
 } // namespace FETools
 
 
