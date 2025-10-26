@@ -81,7 +81,7 @@ namespace internal
     return numbers::invalid_unsigned_int;
   }
 
-  // helper functions for RegularPatch constructor
+  // helper functions for RegularVertexPatch constructor
   template <int dim>
   std::vector<typename Triangulation<dim>::cell_iterator>
   order_patch(
