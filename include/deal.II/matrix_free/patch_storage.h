@@ -169,17 +169,11 @@ namespace internal
  * Stores the cell indices and potentially orientation information. Provides
  * methods to check constructibility and access cell data.
  *
- * @tparam MFType The type of the MatrixFree object used to access cell and DoF
- * information.
+ * @tparam dim The spatial dimension.
  */
-template <class MFType>
+template <int dim>
 struct RegularVertexPatch
 {
-  /**
-   * The spatial dimension.
-   */
-  const static constexpr unsigned int dim = MFType::dimension;
-
   /**
    * Type used to represent a unique index for each cell.
    */
@@ -320,17 +314,11 @@ private:
  *
  * Stores a variable number of cell indices.
  *
- * @tparam MFType The type of the MatrixFree object used to access cell and DoF
- * information.
+ * @tparam dim The spatial dimension.
  */
-template <class MFType>
+template <int dim>
 struct GeneralVertexPatch
 {
-  /**
-   * The spatial dimension.
-   */
-  const static constexpr unsigned int dim = MFType::dimension;
-
   /**
    * Type used to represent a unique index for each cell.
    */
@@ -489,14 +477,14 @@ public:
 
 
   /**
-   * Alias for RegularVertexPatch with the current MFType.
+   * Alias for RegularVertexPatch with the current dimension.
    */
-  using RegularPatch = RegularVertexPatch<MFType>;
+  using RegularPatch = RegularVertexPatch<dim>;
 
   /**
-   * Alias for GeneralVertexPatch with the current MFType.
+   * Alias for GeneralVertexPatch with the current dimension.
    */
-  using GeneralPatch = GeneralVertexPatch<MFType>;
+  using GeneralPatch = GeneralVertexPatch<dim>;
 
 
   /**
@@ -771,15 +759,14 @@ private:
 // RegularVertexPatch constructor definitions
 // ============================================================================
 // dim==2
-template <class MFType>
-RegularVertexPatch<MFType>::RegularVertexPatch(
+template <int dim>
+RegularVertexPatch<dim>::RegularVertexPatch(
   const std::set<CellIndex>                            &patch,
   const types::global_vertex_index                     &vertex_index,
   const std::function<CellIterator(const CellIndex &)> &index2cell)
 {
   if constexpr (dim == 2)
     {
-      const static unsigned int         dim = 2;
       std::map<CellIterator, CellIndex> iterator2index;
       std::set<CellIterator>            cells_iterators;
 
@@ -813,7 +800,6 @@ RegularVertexPatch<MFType>::RegularVertexPatch(
 
   if constexpr (dim == 3)
     {
-      const unsigned int                            dim             = 3;
       const static std::array<std::size_t, n_cells> vindex2position = {
         {7, 6, 5, 4, 3, 2, 1}}; // TODO: Check this order {7, 6, 5, 4, 3, 2,
                                 // 1, 0}?
@@ -845,8 +831,8 @@ RegularVertexPatch<MFType>::RegularVertexPatch(
 // ============================================================================
 // GeneralVertexPatch constructor definition
 // ============================================================================
-template <class MFType>
-GeneralVertexPatch<MFType>::GeneralVertexPatch(
+template <int dim>
+GeneralVertexPatch<dim>::GeneralVertexPatch(
   const std::set<CellIndex> &patch,
   const types::global_vertex_index & /*vertex_index*/,
   const std::function<CellIterator(const CellIndex &)> & /*index2cell*/)
