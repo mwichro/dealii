@@ -18,6 +18,7 @@
 #include <deal.II/base/mpi.h>
 #include <deal.II/base/mpi_large_count.h>
 #include <deal.II/base/parameter_handler.h>
+#include <deal.II/base/segment_data_out.h>
 #include <deal.II/base/thread_management.h>
 #include <deal.II/base/utilities.h>
 
@@ -8179,63 +8180,34 @@ void
 export_line_segments(
   const std::vector<std::pair<Point<dim>, Point<dim>>> &point_pairs,
   const std::string &filename_without_extension,
-  const MPI_Comm    &mpi_communicator = MPI_COMM_WORLD)
+  const MPI_Comm    &mpi_communicator)
 {
   const unsigned int n_mpi_process =
     Utilities::MPI::n_mpi_processes(mpi_communicator);
   const unsigned int this_mpi_process =
-    Utilities::MPI::this_mpi_process(MPI_COMM_WORLD);
+    Utilities::MPI::this_mpi_process(mpi_communicator);
 
-  using LineOutData = DataOutBase::Patch<1, dim>;
-  std::vector<LineOutData> patches_output;
-  patches_output.reserve(point_pairs.size());
+  // Use SegmentDataOut to generate patches from line segments
+  SegmentDataOut<dim> segment_data_out;
+  segment_data_out.build_patches(point_pairs);
 
-  // Create a reference cell for the line segments.
-  // We use a 1-dimensional hypercube as the reference cell.
-  const ReferenceCell reference_cell = ReferenceCells::get_hypercube<1>();
-
-  for (unsigned int segment_index = 0; segment_index < point_pairs.size();
-       ++segment_index)
-    {
-      LineOutData link_out;
-      link_out.patch_index    = segment_index;
-      link_out.reference_cell = reference_cell;
-
-      link_out.vertices[0] = point_pairs[segment_index].first;
-      link_out.vertices[1] = point_pairs[segment_index].second;
-      patches_output.emplace_back(std::move(link_out));
-    }
+  // Set up file names for parallel output
   std::vector<std::string> piece_names(n_mpi_process);
   for (unsigned int i = 0; i < n_mpi_process; ++i)
     piece_names[i] = filename_without_extension + ".proc" +
                      Utilities::int_to_string(i, 4) + ".vtu";
   const std::string new_file = piece_names[this_mpi_process];
-
   const std::string out_pvtu = filename_without_extension + ".pvtu";
 
-
+  // Write VTU file for this process
   std::ofstream out(new_file);
-  std::vector<
-    std::tuple<unsigned int,
-               unsigned int,
-               std::string,
-               DataComponentInterpretation::DataComponentInterpretation>>
-    vector_data_ranges;
+  segment_data_out.write_vtu(out);
 
-  DataOutBase::write_vtu(patches_output,
-                         /*data names*/ {},
-                         vector_data_ranges,
-                         DataOutBase::VtkFlags(),
-                         out);
-
+  // Write PVTU file on rank 0 to combine all VTU files
   if (this_mpi_process == 0)
     {
       std::ofstream pvtu_output(out_pvtu);
-      DataOutBase::write_pvtu_record(pvtu_output,
-                                     piece_names,
-                                     /*data_names*/ {},
-                                     vector_data_ranges,
-                                     DataOutBase::VtkFlags());
+      segment_data_out.write_pvtu_record(pvtu_output, piece_names);
     }
 }
 
