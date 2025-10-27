@@ -124,13 +124,7 @@ SegmentDataOut<dim>::build_patches(
   const ConvertibleToSegmentIterator &begin,
   const ConvertibleToSegmentIterator &end)
 {
-  using Getter = boost::geometry::index::indexable<
-    typename ConvertibleToSegmentIterator::value_type>;
-  Getter                 getter;
-  constexpr unsigned int segdim =
-    boost::geometry::dimension<typename Getter::result_type>::value;
   const unsigned int N = std::distance(begin, end);
-  static_assert(segdim == dim, "Segments are of the wrong dimension!");
 
   dataset_names.clear();
   patches.resize(N);
@@ -139,8 +133,9 @@ SegmentDataOut<dim>::build_patches(
   for (const auto &value :
        IteratorRange<ConvertibleToSegmentIterator>(begin, end))
     {
+      // Convert to Segment<dim> which is compatible with std::pair<Point<dim>, Point<dim>>
       Segment<dim> segment;
-      boost::geometry::convert(getter(*value), segment);
+      boost::geometry::convert(*value, segment);
       
       // A line segment has 2 vertices
       patches[i].vertices[0]    = segment.first;
