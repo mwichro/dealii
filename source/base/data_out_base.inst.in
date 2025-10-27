@@ -238,15 +238,3 @@ for (deal_II_dimension : OUTPUT_DIMENSIONS;
       const DataOutBase::flag_type &flags);
   }
 
-
-for (deal_II_dimension : OUTPUT_DIMENSIONS)
-  {
-    namespace DataOutBase
-    \{
-      template void export_line_segments(
-        const std::vector<std::pair<Point<deal_II_dimension>,
-                                    Point<deal_II_dimension>>> &point_pairs,
-        const std::string &,
-        const MPI_Comm &mpi_communicator);
-    \}
-  }
