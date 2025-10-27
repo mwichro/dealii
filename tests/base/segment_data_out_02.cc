@@ -36,7 +36,7 @@ test()
           end[d]   = static_cast<double>(i + 1);
         }
       segments[i] = std::make_pair(start, end);
-      
+
       // Attach some data: segment id and length
       datasets[i][0] = static_cast<double>(i);
       datasets[i][1] = start.distance(end);
