@@ -1532,21 +1532,25 @@ protected:
  * MGTransferMatrixFree.
  * Both the cases that the same DoFHandler is used for all the blocks
  * and that each block uses its own DoFHandler are supported.
+ *
+ * @note The template parameter @p MemorySpace defaults to MemorySpace::Host.
+ * MemorySpace::Default is not currently implemented.
  */
-template <int dim, typename Number>
+template <int dim,
+          typename Number,
+          typename MemorySpace = ::dealii::MemorySpace::Host>
 class MGTransferBlockMatrixFree
   : public MGTransferBlockMatrixFreeBase<
       dim,
       Number,
-      MGTransferMatrixFree<dim, Number, ::dealii::MemorySpace::Host>>
+      MGTransferMatrixFree<dim, Number, MemorySpace>>
 {
 public:
   /**
    * Constructor.
    */
   MGTransferBlockMatrixFree(
-    const MGTransferMatrixFree<dim, Number, ::dealii::MemorySpace::Host>
-      &transfer_operator);
+    const MGTransferMatrixFree<dim, Number, MemorySpace> &transfer_operator);
 
   /**
    * Constructor without constraint matrices. Use this constructor only with
@@ -1592,21 +1596,21 @@ public:
   build(const std::vector<const DoFHandler<dim> *> &dof_handler);
 
 protected:
-  const MGTransferMatrixFree<dim, Number, ::dealii::MemorySpace::Host> &
+  const MGTransferMatrixFree<dim, Number, MemorySpace> &
   get_matrix_free_transfer(const unsigned int b) const override;
 
 private:
   /**
    * Internal non-block version of transfer operation.
    */
-  std::vector<MGTransferMatrixFree<dim, Number, ::dealii::MemorySpace::Host>>
+  std::vector<MGTransferMatrixFree<dim, Number, MemorySpace>>
     transfer_operators_internal;
 
   /**
    * Non-block version of transfer operation.
    */
   std::vector<ObserverPointer<
-    const MGTransferMatrixFree<dim, Number, ::dealii::MemorySpace::Host>>>
+    const MGTransferMatrixFree<dim, Number, MemorySpace>>>
     transfer_operators;
 };
 
@@ -2090,6 +2094,13 @@ MGTransferBlockMatrixFreeBase<dim, Number, TransferType>::copy_to_mg(
   MGLevelObject<LinearAlgebra::distributed::BlockVector<Number>> &dst,
   const BlockVectorType2                                         &src) const
 {
+  // Assert that MemorySpace is Host for parallel::distributed::Vector
+  static_assert(
+    std::is_same_v<typename TransferType::VectorType::memory_space,
+                   ::dealii::MemorySpace::Host>,
+    "MGTransferBlockMatrixFree with MemorySpace::Default is not implemented. "
+    "Please use MemorySpace::Host.");
+
   const unsigned int n_blocks = src.n_blocks();
   AssertDimension(dof_handler.size(), n_blocks);
 
@@ -2150,6 +2161,13 @@ MGTransferBlockMatrixFreeBase<dim, Number, TransferType>::copy_from_mg(
   const MGLevelObject<LinearAlgebra::distributed::BlockVector<Number>> &src)
   const
 {
+  // Assert that MemorySpace is Host for parallel::distributed::Vector
+  static_assert(
+    std::is_same_v<typename TransferType::VectorType::memory_space,
+                   ::dealii::MemorySpace::Host>,
+    "MGTransferBlockMatrixFree with MemorySpace::Default is not implemented. "
+    "Please use MemorySpace::Host.");
+
   const unsigned int n_blocks = dst.n_blocks();
   AssertDimension(dof_handler.size(), n_blocks);
 
