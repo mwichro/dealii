@@ -4563,6 +4563,13 @@ MGTransferBlockMatrixFreeBase<dim, Number, TransferType>::prolongate(
   LinearAlgebra::distributed::BlockVector<Number>       &dst,
   const LinearAlgebra::distributed::BlockVector<Number> &src) const
 {
+  // Assert that MemorySpace is Host for parallel::distributed::Vector
+  static_assert(
+    std::is_same_v<typename TransferType::VectorType::memory_space,
+                   ::dealii::MemorySpace::Host>,
+    "MGTransferBlockMatrixFree with MemorySpace::Default is not implemented. "
+    "Please use MemorySpace::Host.");
+
   const unsigned int n_blocks = src.n_blocks();
   AssertDimension(dst.n_blocks(), n_blocks);
 
@@ -4583,6 +4590,13 @@ MGTransferBlockMatrixFreeBase<dim, Number, TransferType>::prolongate_and_add(
   LinearAlgebra::distributed::BlockVector<Number>       &dst,
   const LinearAlgebra::distributed::BlockVector<Number> &src) const
 {
+  // Assert that MemorySpace is Host for parallel::distributed::Vector
+  static_assert(
+    std::is_same_v<typename TransferType::VectorType::memory_space,
+                   ::dealii::MemorySpace::Host>,
+    "MGTransferBlockMatrixFree with MemorySpace::Default is not implemented. "
+    "Please use MemorySpace::Host.");
+
   const unsigned int n_blocks = src.n_blocks();
   AssertDimension(dst.n_blocks(), n_blocks);
 
@@ -4603,6 +4617,13 @@ MGTransferBlockMatrixFreeBase<dim, Number, TransferType>::restrict_and_add(
   LinearAlgebra::distributed::BlockVector<Number>       &dst,
   const LinearAlgebra::distributed::BlockVector<Number> &src) const
 {
+  // Assert that MemorySpace is Host for parallel::distributed::Vector
+  static_assert(
+    std::is_same_v<typename TransferType::VectorType::memory_space,
+                   ::dealii::MemorySpace::Host>,
+    "MGTransferBlockMatrixFree with MemorySpace::Default is not implemented. "
+    "Please use MemorySpace::Host.");
+
   const unsigned int n_blocks = src.n_blocks();
   AssertDimension(dst.n_blocks(), n_blocks);
 
@@ -4616,49 +4637,50 @@ MGTransferBlockMatrixFreeBase<dim, Number, TransferType>::restrict_and_add(
 
 
 
-template <int dim, typename Number>
-MGTransferBlockMatrixFree<dim, Number>::MGTransferBlockMatrixFree(
-  const MGTransferMatrixFree<dim, Number, ::dealii::MemorySpace::Host>
-    &transfer_operator)
+template <int dim, typename Number, typename MemorySpace>
+MGTransferBlockMatrixFree<dim, Number, MemorySpace>::
+  MGTransferBlockMatrixFree(
+    const MGTransferMatrixFree<dim, Number, MemorySpace> &transfer_operator)
   : MGTransferBlockMatrixFreeBase<
       dim,
       Number,
-      MGTransferMatrixFree<dim, Number, ::dealii::MemorySpace::Host>>(true)
+      MGTransferMatrixFree<dim, Number, MemorySpace>>(true)
 {
   this->transfer_operators = {&transfer_operator};
 }
 
 
 
-template <int dim, typename Number>
-MGTransferBlockMatrixFree<dim, Number>::MGTransferBlockMatrixFree(
-  const MGConstrainedDoFs &mg_constrained_dofs)
+template <int dim, typename Number, typename MemorySpace>
+MGTransferBlockMatrixFree<dim, Number, MemorySpace>::
+  MGTransferBlockMatrixFree(const MGConstrainedDoFs &mg_constrained_dofs)
   : MGTransferBlockMatrixFreeBase<
       dim,
       Number,
-      MGTransferMatrixFree<dim, Number, ::dealii::MemorySpace::Host>>(true)
+      MGTransferMatrixFree<dim, Number, MemorySpace>>(true)
 {
   initialize_constraints(mg_constrained_dofs);
 }
 
 
 
-template <int dim, typename Number>
-MGTransferBlockMatrixFree<dim, Number>::MGTransferBlockMatrixFree(
-  const std::vector<MGConstrainedDoFs> &mg_constrained_dofs)
+template <int dim, typename Number, typename MemorySpace>
+MGTransferBlockMatrixFree<dim, Number, MemorySpace>::
+  MGTransferBlockMatrixFree(
+    const std::vector<MGConstrainedDoFs> &mg_constrained_dofs)
   : MGTransferBlockMatrixFreeBase<
       dim,
       Number,
-      MGTransferMatrixFree<dim, Number, ::dealii::MemorySpace::Host>>(false)
+      MGTransferMatrixFree<dim, Number, MemorySpace>>(false)
 {
   initialize_constraints(mg_constrained_dofs);
 }
 
 
 
-template <int dim, typename Number>
+template <int dim, typename Number, typename MemorySpace>
 void
-MGTransferBlockMatrixFree<dim, Number>::initialize_constraints(
+MGTransferBlockMatrixFree<dim, Number, MemorySpace>::initialize_constraints(
   const MGConstrainedDoFs &mg_constrained_dofs)
 {
   this->transfer_operators_internal.clear();
@@ -4675,9 +4697,9 @@ MGTransferBlockMatrixFree<dim, Number>::initialize_constraints(
 
 
 
-template <int dim, typename Number>
+template <int dim, typename Number, typename MemorySpace>
 void
-MGTransferBlockMatrixFree<dim, Number>::initialize_constraints(
+MGTransferBlockMatrixFree<dim, Number, MemorySpace>::initialize_constraints(
   const std::vector<MGConstrainedDoFs> &mg_constrained_dofs)
 {
   this->transfer_operators_internal.clear();
@@ -4698,9 +4720,9 @@ MGTransferBlockMatrixFree<dim, Number>::initialize_constraints(
 
 
 
-template <int dim, typename Number>
+template <int dim, typename Number, typename MemorySpace>
 void
-MGTransferBlockMatrixFree<dim, Number>::build(
+MGTransferBlockMatrixFree<dim, Number, MemorySpace>::build(
   const DoFHandler<dim> &dof_handler)
 {
   AssertDimension(transfer_operators.size(), 1);
@@ -4709,9 +4731,9 @@ MGTransferBlockMatrixFree<dim, Number>::build(
 
 
 
-template <int dim, typename Number>
+template <int dim, typename Number, typename MemorySpace>
 void
-MGTransferBlockMatrixFree<dim, Number>::build(
+MGTransferBlockMatrixFree<dim, Number, MemorySpace>::build(
   const std::vector<const DoFHandler<dim> *> &dof_handler)
 {
   AssertDimension(transfer_operators.size(), dof_handler.size());
@@ -4723,9 +4745,9 @@ MGTransferBlockMatrixFree<dim, Number>::build(
 
 
 
-template <int dim, typename Number>
-const MGTransferMatrixFree<dim, Number, ::dealii::MemorySpace::Host> &
-MGTransferBlockMatrixFree<dim, Number>::get_matrix_free_transfer(
+template <int dim, typename Number, typename MemorySpace>
+const MGTransferMatrixFree<dim, Number, MemorySpace> &
+MGTransferBlockMatrixFree<dim, Number, MemorySpace>::get_matrix_free_transfer(
   const unsigned int b) const
 {
   AssertIndexRange(b, transfer_operators.size());
