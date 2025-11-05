@@ -161,8 +161,7 @@ RegularVertexPatch<dim>::RegularVertexPatch(
   if constexpr (dim == 3)
     {
       const static std::array<std::size_t, n_cells> vindex2position = {
-        {7, 6, 5, 4, 3, 2, 1}}; // TODO: Check this order {7, 6, 5, 4, 3, 2,
-                                // 1, 0}?
+        {7, 6, 5, 4, 3, 2, 1, 0}};
 
       std::vector<bool> used_cell(n_cells, false);
 
