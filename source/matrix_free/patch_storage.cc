@@ -114,4 +114,619 @@ namespace internal
 
 } // namespace internal
 
+
+// ============================================================================
+// RegularVertexPatch constructor implementations
+// ============================================================================
+
+template <int dim>
+RegularVertexPatch<dim>::RegularVertexPatch(
+  const std::set<CellIndex>                            &patch,
+  const types::global_vertex_index                     &vertex_index,
+  const std::function<CellIterator(const CellIndex &)> &index2cell)
+{
+  if constexpr (dim == 2)
+    {
+      std::map<CellIterator, CellIndex> iterator2index;
+      std::set<CellIterator>            cells_iterators;
+
+      for (auto &cell_index : patch)
+        {
+          iterator2index[index2cell(cell_index)] = cell_index;
+          cells_iterators.insert(index2cell(cell_index));
+        }
+
+      std::vector<CellIterator> ordered_patch_cells =
+        internal::order_patch<dim>(cells_iterators, vertex_index);
+
+      internal::reorder(ordered_patch_cells, {3, 2, 1, 0});
+
+      std::vector<CellIndex> ordered_patch;
+      for (auto &cell : ordered_patch_cells)
+        ordered_patch.push_back(iterator2index.at(cell));
+
+
+      AssertDimension(ordered_patch.size(), ordered_patch_cells.size());
+
+      for (unsigned int i = 0; i < n_cells; ++i)
+        cells[i] = ordered_patch[i];
+
+
+      partially_ghosted = false;
+      for (auto &cell : ordered_patch_cells)
+        if (!cell->is_locally_owned_on_level())
+          partially_ghosted = true;
+    }
+
+  if constexpr (dim == 3)
+    {
+      const static std::array<std::size_t, n_cells> vindex2position = {
+        {7, 6, 5, 4, 3, 2, 1}}; // TODO: Check this order {7, 6, 5, 4, 3, 2,
+                                // 1, 0}?
+
+      std::vector<bool> used_cell(n_cells, false);
+
+      for (const auto cell_index : patch)
+        {
+          const auto cell = index2cell(cell_index);
+          const auto v_index =
+            internal::compute_vertex_index<dim>(cell, vertex_index);
+
+          const auto &cell__inpatch_index = vindex2position[v_index];
+          Assert(
+            used_cell[cell__inpatch_index] == false,
+            ExcMessage(
+              "You have tried to construct patch from rotated cells, that is currently not implemented"));
+          used_cell[cell__inpatch_index] = true;
+          cells[cell__inpatch_index]     = cell_index;
+        }
+
+      partially_ghosted = false;
+      for (auto &cell_index : cells)
+        if (!index2cell(cell_index)->is_locally_owned_on_level())
+          partially_ghosted = true;
+    }
+}
+
+
+template <int dim>
+bool
+RegularVertexPatch<dim>::has_conflict_with(
+  const RegularVertexPatch &other) const
+{
+  (void)other;
+  return false;
+}
+
+
+// ============================================================================
+// GeneralVertexPatch constructor implementation
+// ============================================================================
+
+template <int dim>
+GeneralVertexPatch<dim>::GeneralVertexPatch(
+  const std::set<CellIndex> &patch,
+  const types::global_vertex_index & /*vertex_index*/,
+  const std::function<CellIterator(const CellIndex &)> & /*index2cell*/)
+{
+  cells.assign(patch.begin(), patch.end());
+}
+
+
+// ============================================================================
+// PatchStorage member function implementations
+// ============================================================================
+
+template <class MFType>
+PatchStorage<MFType>::PatchStorage(
+  const std::shared_ptr<const MatrixFreeType> &mf)
+  : EnableObserverPointer()
+  , matrix_free(mf)
+  , triangulation(matrix_free->get_dof_handler().get_triangulation())
+  , mpi_communicator(
+      matrix_free->get_vector_partitioner()->get_mpi_communicator())
+  , this_mpi_process(Utilities::MPI::this_mpi_process(mpi_communicator))
+  , n_mpi_process(Utilities::MPI::n_mpi_processes(mpi_communicator))
+  , level(matrix_free->get_mg_level())
+  , n_components(matrix_free->n_components())
+  , task_infos(n_components)
+  , is_initialized(false)
+  , are_patches_categorized(false)
+{
+  Assert(matrix_free->get_dof_handler().get_triangulation().n_global_levels() >
+           0,
+         ExcInternalError());
+  Assert(level != numbers::invalid_unsigned_int, ExcInternalError());
+}
+
+
+template <class MFType>
+void
+PatchStorage<MFType>::initialize(const AdditionalData &data)
+{
+  this->additional_data = data;
+
+  Assert(static_cast<unsigned int>(level) < triangulation.n_global_levels(),
+         ExcInternalError());
+
+  std::map<types::global_vertex_index, std::set<CellIndex>> vertex_to_cell_map =
+    generate_patches();
+
+  {
+    unsigned int n_patches = 0;
+    for (auto iterator = vertex_to_cell_map.begin();
+         iterator != vertex_to_cell_map.end();
+         ++iterator)
+      {
+        std::set<CellIndex> &patch = iterator->second;
+
+        std::set<CellIterator> patch_cells;
+        for (const CellIndex &cells_indices : patch)
+          patch_cells.insert(index2cell(cells_indices));
+
+
+        bool         has_owned = false;
+        unsigned int owned_by  = numbers::invalid_unsigned_int;
+        for (const CellIterator &cell : patch_cells)
+          {
+            if (cell->is_locally_owned_on_level())
+              {
+                has_owned = true;
+              }
+            if (cell->level_subdomain_id() < owned_by &&
+                cell->level_subdomain_id() <= n_mpi_process)
+              {
+                owned_by = cell->level_subdomain_id();
+              }
+          }
+        if (false == has_owned ||
+            Utilities::MPI::this_mpi_process(mpi_communicator) != owned_by)
+          patch.clear();
+        else
+          ++n_patches;
+      }
+    Assert(n_patches <= triangulation.n_vertices(), ExcInternalError());
+  }
+
+  for (unsigned int component = 0; component < n_components; ++component)
+    {
+      const auto &dof_handler = matrix_free->get_dof_handler(component);
+
+      IndexSet locally_relevant_dofs;
+      DoFTools::extract_locally_relevant_level_dofs(dof_handler,
+                                                    level,
+                                                    locally_relevant_dofs);
+
+      std::set<types::global_dof_index> locally_relevant_dofs_set;
+      for (auto [vertex_index, patch] : vertex_to_cell_map)
+        {
+          const auto local_dofs = collect_patch_dof_indices(patch, component);
+          locally_relevant_dofs_set.insert(local_dofs.begin(),
+                                           local_dofs.end());
+        }
+
+      IndexSet dependency_region(dof_handler.n_dofs());
+      dependency_region.add_indices(locally_relevant_dofs_set.begin(),
+                                    locally_relevant_dofs_set.end());
+
+      IndexSet influence_region = dependency_region;
+
+      partitioners.push_back(std::make_shared<Utilities::MPI::Partitioner>(
+        dof_handler.locally_owned_mg_dofs(level),
+        locally_relevant_dofs,
+        mpi_communicator));
+
+      task_infos[component].initialize(*matrix_free,
+                                       dependency_region,
+                                       influence_region,
+                                       process_colors,
+                                       true);
+    }
+
+  for (auto iterator = vertex_to_cell_map.begin();
+       iterator != vertex_to_cell_map.end();
+       ++iterator)
+    {
+      std::set<CellIndex>              &patch        = iterator->second;
+      const types::global_vertex_index &vertex_index = iterator->first;
+      const unsigned int                n_cells      = patch.size();
+
+      if (n_cells == 0)
+        continue;
+
+      push_back_patch(patch, vertex_index);
+    }
+
+  for (unsigned int i = 0; i < TaskInfoType::n_categories; ++i)
+    std::sort(regular_patches[i].begin(),
+              regular_patches[i].end(),
+              [&](const auto a, const auto b) {
+                return a.get_cells() < b.get_cells();
+              });
+
+  is_initialized = true;
+}
+
+
+template <class MFType>
+std::map<types::global_vertex_index,
+         std::set<typename PatchStorage<MFType>::CellIndex>>
+PatchStorage<MFType>::generate_patches()
+{
+  std::map<types::global_vertex_index, std::set<CellIndex>> vertex_to_cell_map;
+
+  for (unsigned int i = 0;
+       i < matrix_free->n_cell_batches() + matrix_free->n_ghost_cell_batches();
+       ++i)
+    for (unsigned int j = 0;
+         j < matrix_free->n_active_entries_per_cell_batch(i);
+         ++j)
+      {
+        const auto &cell = matrix_free->get_cell_iterator(i, j);
+
+        for (const auto v : cell->vertex_indices())
+          vertex_to_cell_map[cell->vertex_index(v)].insert(batch2index(i, j));
+      }
+
+  return vertex_to_cell_map;
+}
+
+
+template <class MFType>
+void
+PatchStorage<MFType>::push_back_patch(
+  const std::set<typename PatchStorage<MFType>::CellIndex> &patch,
+  const types::global_vertex_index                         &vertex_index)
+{
+  const std::function<CellIterator(const CellIndex &)> index2cell_local =
+    [&](const CellIndex &index) -> CellIterator {
+    return this->index2cell(index);
+  };
+
+  unsigned int category = TaskInfoType::invalid_category;
+  for (unsigned int component = 0; component < n_components; ++component)
+    {
+      const auto local_dofs = collect_patch_dof_indices(patch, component);
+
+      category = internal::GaussSeidel::min_category(
+        category,
+        task_infos[component].determine_minimum_category_of_patch(
+          local_dofs, process_colors));
+    }
+  const unsigned int partition =
+    TaskInfoType::determine_cell_partition(category);
+
+  if (RegularPatch::is_constructible(patch, vertex_index, index2cell_local))
+    {
+      RegularPatch ordered_patch(patch, vertex_index, index2cell_local);
+      regular_patches[partition].push_back(ordered_patch);
+    }
+  else
+    {
+      GeneralPatch general_patch(patch, vertex_index, index2cell_local);
+      other_patches[partition].push_back(general_patch);
+    }
+}
+
+
+template <class MFType>
+std::set<types::global_dof_index>
+PatchStorage<MFType>::collect_patch_dof_indices(
+  const std::set<typename PatchStorage<MFType>::CellIndex> &patch_cells,
+  const unsigned int                                       &component) const
+{
+  const auto &dof_handler = matrix_free->get_dof_handler(component);
+  std::set<types::global_dof_index> local_dofs;
+
+  for (auto cell_index : patch_cells)
+    {
+      const auto &cell = index2cell(cell_index);
+      typename DoFHandler<dim>::level_cell_iterator dof_cell(&triangulation,
+                                                             cell->level(),
+                                                             cell->index(),
+                                                             &dof_handler);
+
+      std::vector<types::global_dof_index> local_dof_indices(
+        dof_cell->get_fe().n_dofs_per_cell());
+      dof_cell->get_mg_dof_indices(local_dof_indices);
+      local_dofs.insert(local_dof_indices.begin(), local_dof_indices.end());
+    }
+  return local_dofs;
+}
+
+
+template <class MFType>
+void
+PatchStorage<MFType>::categorize_patches(
+  std::function<PatchCategory(const RegularPatch &)> category_function)
+{
+  Assert(is_initialized, ExcNotInitialized());
+
+  for (unsigned int cat = 0; cat < TaskInfoType::n_categories; ++cat)
+    {
+      regular_patch_categories[cat].reserve(regular_patches[cat].size());
+      for (const auto &patch : regular_patches[cat])
+        {
+          regular_patch_categories[cat].push_back(category_function(patch));
+        }
+    }
+  are_patches_categorized = true;
+}
+
+
+template <class MFType>
+void
+PatchStorage<MFType>::clear()
+{
+  for (unsigned int i = 0; i < TaskInfoType::n_categories; ++i)
+    {
+      regular_patches[i].clear();
+      regular_patch_categories[i].clear();
+      other_patches[i].clear();
+    }
+  partitioners.clear();
+  process_colors.clear();
+  task_infos.clear();
+  task_infos.resize(n_components);
+  is_initialized          = false;
+  are_patches_categorized = false;
+}
+
+
+template <class MFType>
+const typename PatchStorage<MFType>::RegularPatch &
+PatchStorage<MFType>::get_regular_patch(const std::size_t &i) const
+{
+  std::size_t ii = i;
+  for (unsigned int cat_index = 0; cat_index < regular_patches.size();
+       ++cat_index)
+    {
+      const auto &patch_cat = regular_patches[cat_index];
+      if (ii < patch_cat.size())
+        return patch_cat[ii];
+      else
+        ii -= patch_cat.size();
+    }
+
+  Assert(false, ExcInternalError());
+  return regular_patches[0][0];
+}
+
+
+template <class MFType>
+std::size_t
+PatchStorage<MFType>::n_patches() const
+{
+  std::size_t n_patches = 0;
+  for (const auto &patch_cat : regular_patches)
+    n_patches += patch_cat.size();
+  return n_patches;
+}
+
+
+template <class MFType>
+const std::shared_ptr<const typename PatchStorage<MFType>::MatrixFreeType> &
+PatchStorage<MFType>::get_matrix_free() const
+{
+  return matrix_free;
+}
+
+
+template <class MFType>
+const typename PatchStorage<MFType>::PatchCategory &
+PatchStorage<MFType>::get_regular_patch_category(const std::size_t &i) const
+{
+  Assert(are_patches_categorized, ExcNotInitialized());
+  AssertDimension(regular_patches.size(), regular_patch_categories.size());
+
+  std::size_t ii = i;
+  for (unsigned int cat_index = 0; cat_index < regular_patches.size();
+       ++cat_index)
+    {
+      AssertDimension(regular_patches[cat_index].size(),
+                      regular_patch_categories[cat_index].size());
+      const auto &patch_cat = regular_patch_categories[cat_index];
+      if (ii < patch_cat.size())
+        return patch_cat[ii];
+      else
+        ii -= patch_cat.size();
+    }
+
+  AssertThrow(false, ExcInternalError());
+  return regular_patch_categories[0][0];
+}
+
+
+template <class MFType>
+void
+PatchStorage<MFType>::output_patches(
+  const std::string &filename_without_extension) const
+{
+  using CellOutData = DataOutBase::Patch<dim, dim>;
+  std::vector<CellOutData> patches_out;
+
+  std::vector<std::string> data_names;
+  data_names.emplace_back("patch_index");
+  data_names.emplace_back("parallel category");
+  data_names.emplace_back("local cell index");
+  data_names.emplace_back("global cell index");
+  data_names.emplace_back("MPIRank");
+  data_names.emplace_back("Category");
+
+  const unsigned n_datasets          = 6;
+  unsigned int   patch_counter       = 0;
+  unsigned int   patch_index_counter = 0;
+  for (unsigned int cat_index = 0; cat_index < regular_patches.size();
+       ++cat_index)
+    {
+      const auto &patch_cat = regular_patches[cat_index];
+      for (unsigned int patch_index = 0; patch_index < patch_cat.size();
+           ++patch_index)
+        {
+          const auto &patch = patch_cat[patch_index];
+          for (unsigned int cell_index_within_patch = 0;
+               cell_index_within_patch < patch.get_cells().size();
+               ++cell_index_within_patch)
+            {
+              const auto &cell_index =
+                patch.get_cells()[cell_index_within_patch];
+              const auto &cell = index2cell(cell_index);
+              CellOutData cell_out;
+              for (unsigned int i = 0; i < GeometryInfo<dim>::vertices_per_cell;
+                   ++i)
+                cell_out.vertices[i] = cell->vertex(i);
+              cell_out.patch_index    = patch_counter;
+              cell_out.reference_cell = cell->reference_cell();
+              cell_out.data.reinit(n_datasets, 1 << dim);
+              for (unsigned int i = 0; i < 1 << dim; ++i)
+                {
+                  cell_out.data(0, i) = patch_index_counter;
+                  cell_out.data(1, i) = cat_index;
+                  cell_out.data(2, i) = cell_index_within_patch;
+                  cell_out.data(3, i) = cell_index;
+                  cell_out.data(4, i) = this_mpi_process;
+                  if (are_patches_categorized)
+                    cell_out.data(5, i) =
+                      get_regular_patch_category(patch_index_counter);
+                  else
+                    cell_out.data(5, i) =
+                      std::numeric_limits<double>::quiet_NaN();
+                }
+
+              cell_out.n_subdivisions = 1;
+              patches_out.push_back(cell_out);
+              patch_counter++;
+            }
+          ++patch_index_counter;
+        }
+    }
+
+  std::vector<std::string> piece_names(n_mpi_process);
+  for (unsigned int i = 0; i < n_mpi_process; ++i)
+    piece_names[i] = filename_without_extension + ".proc" +
+                     Utilities::int_to_string(i, 4) + ".vtu";
+  std::string new_file = piece_names[this_mpi_process];
+
+  std::string out_pvtu = filename_without_extension + ".pvtu";
+
+  std::ofstream out(new_file);
+  std::vector<
+    std::tuple<unsigned int,
+               unsigned int,
+               std::string,
+               DataComponentInterpretation::DataComponentInterpretation>>
+    vector_data_ranges;
+
+  DataOutBase::VtkFlags vtu_flags;
+
+  DataOutBase::write_vtu(
+    patches_out, data_names, vector_data_ranges, vtu_flags, out);
+
+  if (this_mpi_process == 0)
+    {
+      std::ofstream pvtu_output(out_pvtu);
+      std::ostream &pvtu_out_steam = pvtu_output;
+      DataOutBase::write_pvtu_record(
+        pvtu_out_steam, piece_names, data_names, vector_data_ranges, vtu_flags);
+    }
+}
+
+
+template <class MFType>
+void
+PatchStorage<MFType>::output_centerpoints(
+  const std::string &filename_without_extension) const
+{
+  using PointOutData = DataOutBase::Patch<0, dim>;
+  std::vector<PointOutData> centerpoints_out;
+
+  std::vector<std::string> data_names;
+  data_names.emplace_back("patch_index");
+  data_names.emplace_back("parallel category");
+  data_names.emplace_back("MPIRank");
+  data_names.emplace_back("Category");
+
+  const unsigned n_datasets    = 4;
+  unsigned int   patch_counter = 0;
+
+  for (unsigned int cat_index = 0; cat_index < regular_patches.size();
+       ++cat_index)
+    {
+      const auto &patch_cat = regular_patches[cat_index];
+      for (unsigned int patch_index = 0; patch_index < patch_cat.size();
+           ++patch_index)
+        {
+          const auto        &patch                   = patch_cat[patch_index];
+          const unsigned int cell_index_within_patch = 0;
+          const auto  &cell_index = patch.get_cells()[cell_index_within_patch];
+          const auto  &cell       = index2cell(cell_index);
+          PointOutData vertex_out;
+
+          unsigned int last_vertex_index =
+            GeometryInfo<dim>::vertices_per_cell - 1;
+
+          vertex_out.vertices[0] = cell->vertex(last_vertex_index);
+
+          vertex_out.patch_index = patch_counter;
+
+          vertex_out.data.reinit(n_datasets, 1);
+
+          vertex_out.data(0, 0) = patch_counter;
+          vertex_out.data(1, 0) = cat_index;
+          vertex_out.data(2, 0) = this_mpi_process;
+          if (are_patches_categorized)
+            vertex_out.data(3, 0) = get_regular_patch_category(patch_counter);
+          else
+            vertex_out.data(3, 0) = std::numeric_limits<double>::quiet_NaN();
+
+          centerpoints_out.push_back(vertex_out);
+          ++patch_counter;
+        }
+    }
+
+  std::vector<std::string> piece_names(n_mpi_process);
+  for (unsigned int i = 0; i < n_mpi_process; ++i)
+    piece_names[i] = filename_without_extension + ".proc" +
+                     Utilities::int_to_string(i, 4) + ".vtu";
+  std::string new_file = piece_names[this_mpi_process];
+
+  std::string out_pvtu = filename_without_extension + ".pvtu";
+
+
+  std::ofstream out(new_file);
+  std::vector<
+    std::tuple<unsigned int,
+               unsigned int,
+               std::string,
+               DataComponentInterpretation::DataComponentInterpretation>>
+    vector_data_ranges;
+
+  DataOutBase::VtkFlags vtu_flags;
+
+  DataOutBase::write_vtu(
+    centerpoints_out, data_names, vector_data_ranges, vtu_flags, out);
+  if (this_mpi_process == 0)
+    {
+      std::ofstream pvtu_output(out_pvtu);
+      std::ostream &pvtu_out_steam = pvtu_output;
+      DataOutBase::write_pvtu_record(
+        pvtu_out_steam, piece_names, data_names, vector_data_ranges, vtu_flags);
+    }
+}
+
+
+// Explicit template instantiations
+template struct RegularVertexPatch<2>;
+template struct RegularVertexPatch<3>;
+
+template struct GeneralVertexPatch<2>;
+template struct GeneralVertexPatch<3>;
+
+template class PatchStorage<MatrixFree<2, double>>;
+template class PatchStorage<MatrixFree<3, double>>;
+
+template class PatchStorage<MatrixFree<2, float>>;
+template class PatchStorage<MatrixFree<3, float>>;
+
+
 DEAL_II_NAMESPACE_CLOSE
