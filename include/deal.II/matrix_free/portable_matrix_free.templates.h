@@ -241,7 +241,12 @@ namespace Portable
       auto cell = graph.cbegin(), end_cell = graph.cend();
       for (unsigned int cell_id = 0; cell != end_cell; ++cell, ++cell_id)
         {
-          (*cell)->get_dof_indices(local_dof_indices);
+          // Get DOF indices - use mg_dof_indices for level cells
+          if (data->get_mg_level() == numbers::invalid_unsigned_int)
+            (*cell)->get_dof_indices(local_dof_indices);
+          else
+            (*cell)->get_mg_dof_indices(local_dof_indices);
+            
           // When using MPI, we need to transform the local_dof_indices, which
           // contain global numbers of dof indices in the MPI universe, to get
           // local (to the current MPI process) dof indices.
@@ -1049,7 +1054,10 @@ namespace Portable
           }
         else
           {
-            const unsigned int n_local_dofs = dof_handler->n_dofs();
+            const unsigned int n_local_dofs = 
+              (mg_level == numbers::invalid_unsigned_int) ?
+                dof_handler->n_dofs() :
+                dof_handler->n_dofs(mg_level);
             unsigned int       i_constraint = 0;
             for (unsigned int i = 0; i < n_local_dofs; ++i)
               {
