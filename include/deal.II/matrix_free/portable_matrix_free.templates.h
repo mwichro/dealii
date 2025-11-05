@@ -959,9 +959,12 @@ namespace Portable
       }
     else
       {
-        // Use level cells
-        LevelCellFilter begin(iterator_filter, dof_handler->begin_mg(mg_level));
-        LevelCellFilter end(iterator_filter, dof_handler->end_mg(mg_level));
+        // Use level cells - use LocallyOwnedLevelCell filter for level cells
+        IteratorFilters::LocallyOwnedLevelCell locally_owned_level_cell_filter;
+        LevelCellFilter begin(locally_owned_level_cell_filter,
+                              dof_handler->begin_mg(mg_level));
+        LevelCellFilter end(locally_owned_level_cell_filter,
+                            dof_handler->end_mg(mg_level));
 
         if (begin != end)
           {
