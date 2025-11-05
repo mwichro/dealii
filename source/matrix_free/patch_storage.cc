@@ -33,7 +33,7 @@ namespace internal
     for (size_t i = 0; i < vA.size(); ++i)
       {
         // while vOrder[i] is not yet in place
-        // every swap places at least one element in it's proper place
+        // every swap places at least one element in its proper place
         while (vOrder[i] != vOrder[vOrder[i]])
           {
             std::swap(vA[vOrder[i]], vA[vOrder[vOrder[i]]]);
@@ -805,6 +805,13 @@ PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
   if (n_patches_total == 0)
     return std::vector<unsigned int>();
   
+  // Create a map from patch pointer to index for O(1) lookup
+  std::map<const RegularPatch*, unsigned int> patch_to_index;
+  for (unsigned int i = 0; i < n_patches_total; ++i)
+    {
+      patch_to_index[all_patches[i]] = i;
+    }
+  
   // Create a conflict function for graph coloring
   // Two patches conflict if they have overlapping cells
   auto get_conflict_indices = 
@@ -837,11 +844,9 @@ PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
     {
       for (const auto &patch_it : coloring[color])
         {
-          // Find the index of this patch in all_patches
-          unsigned int patch_index = std::distance(all_patches.cbegin(), 
-                                                   std::find(all_patches.cbegin(), 
-                                                            all_patches.cend(), 
-                                                            *patch_it));
+          // Use the map to find the index in O(1) time
+          const RegularPatch* patch_ptr = *patch_it;
+          unsigned int patch_index = patch_to_index.at(patch_ptr);
           patch_colors[patch_index] = color;
         }
     }
