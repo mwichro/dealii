@@ -20,6 +20,68 @@ DEAL_II_NAMESPACE_OPEN
 
 namespace internal
 {
+  /*
+   * apply permutation to the given vector.
+   */
+  template <class T>
+  void
+  reorder(std::vector<T> &vA, std::vector<size_t> vOrder)
+  {
+    AssertDimension(vA.size(), vOrder.size());
+
+    // for all elements to put in place
+    for (size_t i = 0; i < vA.size(); ++i)
+      {
+        // while vOrder[i] is not yet in place
+        // every swap places at least one element in it's proper place
+        while (vOrder[i] != vOrder[vOrder[i]])
+          {
+            std::swap(vA[vOrder[i]], vA[vOrder[vOrder[i]]]);
+            std::swap(vOrder[i], vOrder[vOrder[i]]);
+          }
+      }
+  }
+
+
+
+  // Computes index of given vertex within a cell
+  template <int dim>
+  unsigned int
+  compute_vertex_index(const typename Triangulation<dim>::cell_iterator &cell,
+                       const types::global_vertex_index                 &vertex)
+  {
+    for (const auto &i : GeometryInfo<dim>::vertex_indices())
+      if (cell->vertex_index(i) == vertex)
+        return i;
+    Assert(false, ExcMessage("Vertex not found on the given cell!"));
+    return numbers::invalid_unsigned_int;
+  }
+
+  // helper functions for RegularVertexPatch constructor
+  template <int dim>
+  std::vector<typename Triangulation<dim>::cell_iterator>
+  order_patch(
+    const std::set<typename Triangulation<dim>::cell_iterator> &patch_cells,
+    const types::global_vertex_index                           &vertex_index);
+
+  // rotate patch to minimize cell rotations
+  void
+  orient_patch2D(
+    std::vector<typename Triangulation<2>::cell_iterator> &patch_cells,
+    const types::global_vertex_index                      &vertex);
+
+  template <int dim>
+  void
+  rotate_patch(
+    std::vector<typename Triangulation<dim>::cell_iterator> &patch_cells);
+
+
+  // Explicit specialization declaration BEFORE any use
+  template <>
+  void
+  rotate_patch<2>(
+    std::vector<typename Triangulation<2>::cell_iterator> &patch_cells);
+
 
   void
   orient_patch2D(
@@ -121,9 +183,9 @@ namespace internal
 
 template <int dim>
 RegularVertexPatch<dim>::RegularVertexPatch(
-  const std::set<CellIndex>                            &patch,
+  const std::set<typename VertexPatchBase<dim>::CellIndex>                            &patch,
   const types::global_vertex_index                     &vertex_index,
-  const std::function<CellIterator(const CellIndex &)> &index2cell)
+  const std::function<typename VertexPatchBase<dim>::CellIterator(const typename VertexPatchBase<dim>::CellIndex &)> &index2cell)
 {
   if constexpr (dim == 2)
     {
@@ -152,10 +214,10 @@ RegularVertexPatch<dim>::RegularVertexPatch(
         cells[i] = ordered_patch[i];
 
 
-      partially_ghosted = false;
+      this->partially_ghosted = false;
       for (auto &cell : ordered_patch_cells)
         if (!cell->is_locally_owned_on_level())
-          partially_ghosted = true;
+          this->partially_ghosted = true;
     }
 
   if constexpr (dim == 3)
@@ -180,10 +242,10 @@ RegularVertexPatch<dim>::RegularVertexPatch(
           cells[cell__inpatch_index]     = cell_index;
         }
 
-      partially_ghosted = false;
+      this->partially_ghosted = false;
       for (auto &cell_index : cells)
         if (!index2cell(cell_index)->is_locally_owned_on_level())
-          partially_ghosted = true;
+          this->partially_ghosted = true;
     }
 }
 
@@ -204,11 +266,17 @@ RegularVertexPatch<dim>::has_conflict_with(
 
 template <int dim>
 GeneralVertexPatch<dim>::GeneralVertexPatch(
-  const std::set<CellIndex> &patch,
+  const std::set<typename VertexPatchBase<dim>::CellIndex> &patch,
   const types::global_vertex_index & /*vertex_index*/,
-  const std::function<CellIterator(const CellIndex &)> & /*index2cell*/)
+  const std::function<typename VertexPatchBase<dim>::CellIterator(const typename VertexPatchBase<dim>::CellIndex &)> &index2cell)
 {
   cells.assign(patch.begin(), patch.end());
+  
+  // Check if any cells are ghosted
+  this->partially_ghosted = false;
+  for (const auto &cell_index : cells)
+    if (!index2cell(cell_index)->is_locally_owned_on_level())
+      this->partially_ghosted = true;
 }
 
 
@@ -714,7 +782,78 @@ PatchStorage<MFType>::output_centerpoints(
 }
 
 
+template <class MFType>
+std::vector<unsigned int>
+PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
+{
+  (void)parallel_cat; // Currently unused, kept for future extension
+  
+  Assert(is_initialized, ExcNotInitialized());
+  
+  // Collect all regular patches across all parallel categories into a single vector
+  std::vector<RegularPatch*> all_patches;
+  for (unsigned int cat = 0; cat < TaskInfoType::n_categories; ++cat)
+    {
+      for (auto &patch : regular_patches[cat])
+        {
+          all_patches.push_back(&patch);
+        }
+    }
+  
+  const unsigned int n_patches_total = all_patches.size();
+  
+  if (n_patches_total == 0)
+    return std::vector<unsigned int>();
+  
+  // Create a conflict function for graph coloring
+  // Two patches conflict if they have overlapping cells
+  auto get_conflict_indices = 
+    [&](const std::vector<RegularPatch*>::iterator &patch_it) 
+    -> std::vector<types::global_dof_index> {
+      const RegularPatch &patch = **patch_it;
+      const auto cells_vector = patch.get_cells_vector();
+      
+      // Convert cell indices to conflict indices
+      // We use the cell indices themselves as conflict indicators
+      std::vector<types::global_dof_index> conflict_indices;
+      conflict_indices.reserve(cells_vector.size());
+      for (const auto &cell_idx : cells_vector)
+        {
+          conflict_indices.push_back(static_cast<types::global_dof_index>(cell_idx));
+        }
+      return conflict_indices;
+    };
+  
+  // Use GraphColoring to color the patches
+  std::vector<std::vector<std::vector<RegularPatch*>::iterator>> coloring = 
+    GraphColoring::make_graph_coloring(all_patches.begin(),
+                                       all_patches.end(),
+                                       get_conflict_indices);
+  
+  // Convert the coloring result to a color vector for each patch
+  std::vector<unsigned int> patch_colors(n_patches_total);
+  
+  for (unsigned int color = 0; color < coloring.size(); ++color)
+    {
+      for (const auto &patch_it : coloring[color])
+        {
+          // Find the index of this patch in all_patches
+          unsigned int patch_index = std::distance(all_patches.begin(), 
+                                                   std::find(all_patches.begin(), 
+                                                            all_patches.end(), 
+                                                            *patch_it));
+          patch_colors[patch_index] = color;
+        }
+    }
+  
+  return patch_colors;
+}
+
+
 // Explicit template instantiations
+template class VertexPatchBase<2>;
+template class VertexPatchBase<3>;
+
 template struct RegularVertexPatch<2>;
 template struct RegularVertexPatch<3>;
 

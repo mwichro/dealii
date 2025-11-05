@@ -20,6 +20,7 @@
 
 #include <deal.II/base/data_out_base.h>
 #include <deal.II/base/enable_observer_pointer.h>
+#include <deal.II/base/graph_coloring.h>
 #include <deal.II/base/iterator_range.h>
 #include <deal.II/base/partitioner.h>
 #include <deal.II/base/types.h>
@@ -44,69 +45,6 @@ DEAL_II_NAMESPACE_OPEN
 
 namespace internal
 {
-  /*
-   * apply permutation to the given vector.
-   */
-  template <class T>
-  void
-  reorder(std::vector<T> &vA, std::vector<size_t> vOrder)
-  {
-    AssertDimension(vA.size(), vOrder.size());
-
-    // for all elements to put in place
-    for (size_t i = 0; i < vA.size(); ++i)
-      {
-        // while vOrder[i] is not yet in place
-        // every swap places at least one element in it's proper place
-        while (vOrder[i] != vOrder[vOrder[i]])
-          {
-            std::swap(vA[vOrder[i]], vA[vOrder[vOrder[i]]]);
-            std::swap(vOrder[i], vOrder[vOrder[i]]);
-          }
-      }
-  }
-
-
-
-  // Computes index of given vertex within a cell
-  template <int dim>
-  unsigned int
-  compute_vertex_index(const typename Triangulation<dim>::cell_iterator &cell,
-                       const types::global_vertex_index                 &vertex)
-  {
-    for (const auto &i : GeometryInfo<dim>::vertex_indices())
-      if (cell->vertex_index(i) == vertex)
-        return i;
-    Assert(false, ExcMessage("Vertex not found on the given cell!"));
-    return numbers::invalid_unsigned_int;
-  }
-
-  // helper functions for RegularVertexPatch constructor
-  template <int dim>
-  std::vector<typename Triangulation<dim>::cell_iterator>
-  order_patch(
-    const std::set<typename Triangulation<dim>::cell_iterator> &patch_cells,
-    const types::global_vertex_index                           &vertex_index);
-
-  // rotate patch to minimize cell rotations
-  void
-  orient_patch2D(
-    std::vector<typename Triangulation<2>::cell_iterator> &patch_cells,
-    const types::global_vertex_index                      &vertex);
-
-  template <int dim>
-  void
-  rotate_patch(
-    std::vector<typename Triangulation<dim>::cell_iterator> &patch_cells);
-
-
-  // Explicit specialization declaration BEFORE any use
-  template <>
-  void
-  rotate_patch<2>(
-    std::vector<typename Triangulation<2>::cell_iterator> &patch_cells);
-
-
   namespace GaussSeidel
   {
     class TaskInfoDummy
@@ -163,17 +101,18 @@ namespace internal
 #endif // DOXYGEN
 
 /**
- * Represents a regular patch, i.e., a patch centered at a vertex
- * with exactly 2^dim cells.
+ * Base class for vertex patches.
  *
- * Stores the cell indices and potentially orientation information. Provides
- * methods to check constructibility and access cell data.
+ * Provides common interface and functionality for both regular and general
+ * vertex patches, including methods to check for overlap and determine if
+ * patches contain ghost cells.
  *
  * @tparam dim The spatial dimension.
  */
 template <int dim>
-struct RegularVertexPatch
+class VertexPatchBase
 {
+public:
   /**
    * Type used to represent a unique index for each cell.
    */
@@ -184,6 +123,80 @@ struct RegularVertexPatch
    */
   using CellIterator = typename Triangulation<dim>::cell_iterator;
 
+  /**
+   * Virtual destructor.
+   */
+  virtual ~VertexPatchBase() = default;
+
+  /**
+   * Pure virtual function that returns the cells in this patch as a vector.
+   * Must be implemented by derived classes.
+   *
+   * @return A vector of CellIndex values representing the cells in the patch.
+   */
+  virtual std::vector<CellIndex>
+  get_cells_vector() const = 0;
+
+  /**
+   * Check if this patch has an overlap with another patch.
+   *
+   * Two patches overlap if they share any cell indices. This is used
+   * for graph coloring to ensure that patches that overlap cannot be
+   * processed in parallel.
+   *
+   * @param other_patch The other patch to check against.
+   * @return true if the patches share at least one cell, false otherwise.
+   */
+  bool
+  has_overlap_with(const VertexPatchBase &other_patch) const
+  {
+    const std::vector<CellIndex> this_cells  = get_cells_vector();
+    const std::vector<CellIndex> other_cells = other_patch.get_cells_vector();
+
+    // Check if any cell indices are shared
+    for (const auto &this_cell : this_cells)
+      for (const auto &other_cell : other_cells)
+        if (this_cell == other_cell)
+          return true;
+
+    return false;
+  }
+
+  /**
+   * Check if the patch is partially ghosted.
+   *
+   * A patch is partially ghosted if at least one of its cells is a ghost
+   * cell (not locally owned on the current MPI process).
+   *
+   * @return true if the patch contains at least one ghost cell, false
+   * otherwise.
+   */
+  bool
+  is_partially_ghosted() const
+  {
+    return partially_ghosted;
+  }
+
+protected:
+  /**
+   * Flag indicating whether this patch contains at least one ghost cell.
+   * Set by derived classes during construction.
+   */
+  bool partially_ghosted;
+};
+
+/**
+ * Represents a regular patch, i.e., a patch centered at a vertex
+ * with exactly 2^dim cells.
+ *
+ * Stores the cell indices and potentially orientation information. Provides
+ * methods to check constructibility and access cell data.
+ *
+ * @tparam dim The spatial dimension.
+ */
+template <int dim>
+struct RegularVertexPatch : public VertexPatchBase<dim>
+{
   /**
    * Type used to represent the orientation of a cell within a regular patch.
    */
@@ -208,9 +221,9 @@ struct RegularVertexPatch
    * `CellIterator`.
    */
   RegularVertexPatch(
-    const std::set<CellIndex>                            &patch,
+    const std::set<typename VertexPatchBase<dim>::CellIndex>                            &patch,
     const types::global_vertex_index                     &vertex_index,
-    const std::function<CellIterator(const CellIndex &)> &index2cell);
+    const std::function<typename VertexPatchBase<dim>::CellIterator(const typename VertexPatchBase<dim>::CellIndex &)> &index2cell);
 
 
 
@@ -241,6 +254,18 @@ struct RegularVertexPatch
   get_cells() const
   {
     return cells;
+  }
+
+  /**
+   * Returns the cells in this patch as a vector.
+   * Implements the pure virtual function from VertexPatchBase.
+   *
+   * @return A vector of CellIndex values representing the cells in the patch.
+   */
+  virtual std::vector<typename VertexPatchBase<dim>::CellIndex>
+  get_cells_vector() const override
+  {
+    return std::vector<typename VertexPatchBase<dim>::CellIndex>(cells.begin(), cells.end());
   }
 
 
@@ -276,9 +301,9 @@ struct RegularVertexPatch
    */
   static bool
   is_constructible(
-    const std::set<CellIndex>                            &patch,
+    const std::set<typename VertexPatchBase<dim>::CellIndex>                            &patch,
     const types::global_vertex_index                     &vertex_index,
-    const std::function<CellIterator(const CellIndex &)> &index2cell)
+    const std::function<typename VertexPatchBase<dim>::CellIterator(const typename VertexPatchBase<dim>::CellIndex &)> &index2cell)
   {
     (void)vertex_index;
     (void)index2cell;
@@ -287,25 +312,9 @@ struct RegularVertexPatch
     return false;
   }
 
-
-  /**
-   *  Checks if any cell within this patch is a ghost cell on the
-   * current MPI process.
-   * @return `true` if the patch contains at least one ghost cell, `false`
-   * otherwise.
-   */
-  bool
-  is_partially_ghosted() const
-  {
-    return partially_ghosted;
-  }
-
 private:
-  std::array<CellIndex, n_cells>       cells;
+  std::array<typename VertexPatchBase<dim>::CellIndex, n_cells>       cells;
   std::array<CellOrientation, n_cells> orientations;
-
-
-  bool partially_ghosted;
 };
 
 /**
@@ -317,18 +326,8 @@ private:
  * @tparam dim The spatial dimension.
  */
 template <int dim>
-struct GeneralVertexPatch
+struct GeneralVertexPatch : public VertexPatchBase<dim>
 {
-  /**
-   * Type used to represent a unique index for each cell.
-   */
-  using CellIndex = unsigned int;
-
-  /**
-   * Alias for the cell iterator type of the underlying Triangulation.
-   */
-  using CellIterator = typename Triangulation<dim>::cell_iterator;
-
   const static constexpr int dimension        = dim;
   const static bool          is_constant_size = false;
 
@@ -343,9 +342,9 @@ struct GeneralVertexPatch
    * `CellIterator` (unused in current implementation).
    */
   GeneralVertexPatch(
-    const std::set<CellIndex>                            &patch,
-    const types::global_vertex_index                     &vertex_index,
-    const std::function<CellIterator(const CellIndex &)> &index2cell);
+    const std::set<typename VertexPatchBase<dim>::CellIndex>                            &patch,
+    const types::global_vertex_index                         &vertex_index,
+    const std::function<typename VertexPatchBase<dim>::CellIterator(const typename VertexPatchBase<dim>::CellIndex &)> &index2cell);
 
   /**
    *  Returns the number of cells in the patch.
@@ -367,14 +366,20 @@ struct GeneralVertexPatch
     return cells;
   }
 
-  // Add other necessary members and methods for GeneralVertexPatch
-  // For example:
-  // bool has_conflict_with(const GeneralVertexPatch &other) const;
-  // bool is_partially_ghosted() const;
+  /**
+   * Returns the cells in this patch as a vector.
+   * Implements the pure virtual function from VertexPatchBase.
+   *
+   * @return A vector of CellIndex values representing the cells in the patch.
+   */
+  virtual std::vector<typename VertexPatchBase<dim>::CellIndex>
+  get_cells_vector() const override
+  {
+    return cells;
+  }
 
 private:
-  std::vector<CellIndex> cells;
-  // Add other necessary private members
+  std::vector<typename VertexPatchBase<dim>::CellIndex> cells;
 };
 
 /**
@@ -461,11 +466,21 @@ public:
   struct AdditionalData
   {
     /**
+     * Enum for parallel task scheduling schemes.
+     */
+    enum TasksParallelScheme
+    {
+      none,
+      by_color
+    };
+
+    /**
      * Default constructor. Initializes the excluded vertices set with
-     * an invalid index.
+     * an invalid index and sets the default parallel scheme to 'none'.
      */
     AdditionalData()
       : excluded_vertices{numbers::invalid_unsigned_int}
+      , tasks_parallel_scheme(none)
     {}
 
     /**
@@ -473,6 +488,12 @@ public:
      * patch generation.
      */
     std::set<types::global_vertex_index> excluded_vertices;
+
+    /**
+     * The parallel task scheduling scheme to use.
+     * Default is 'none' (no parallelization).
+     */
+    TasksParallelScheme tasks_parallel_scheme;
   };
 
 
@@ -726,6 +747,22 @@ private:
   inline std::set<types::global_dof_index>
   collect_patch_dof_indices(const std::set<CellIndex> &patch_cells,
                             const unsigned int        &component) const;
+
+
+  /**
+   * Colorize patches using graph coloring to enable parallel processing.
+   *
+   * This method builds a graph where each patch is a node, and edges connect
+   * patches that have overlapping cells. Graph coloring is then performed
+   * using deal.II's GraphColoring::make_graph_coloring function to assign
+   * colors such that no two patches with the same color share cells.
+   *
+   * @param parallel_cat The parallel category for which to colorize patches.
+   *                     Currently unused but kept for future extension.
+   * @return A vector of colors, one for each patch in the given category.
+   */
+  std::vector<unsigned int>
+  colorize_patches(unsigned int parallel_cat);
 
 
   // patches[parallel cat][patch_index]
