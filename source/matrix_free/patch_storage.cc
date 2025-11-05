@@ -808,7 +808,7 @@ PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
   // Create a conflict function for graph coloring
   // Two patches conflict if they have overlapping cells
   auto get_conflict_indices = 
-    [&](const std::vector<RegularPatch*>::iterator &patch_it) 
+    [&](const std::vector<RegularPatch*>::const_iterator &patch_it) 
     -> std::vector<types::global_dof_index> {
       const RegularPatch &patch = **patch_it;
       const auto cells_vector = patch.get_cells_vector();
@@ -825,9 +825,9 @@ PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
     };
   
   // Use GraphColoring to color the patches
-  std::vector<std::vector<std::vector<RegularPatch*>::iterator>> coloring = 
-    GraphColoring::make_graph_coloring(all_patches.begin(),
-                                       all_patches.end(),
+  std::vector<std::vector<std::vector<RegularPatch*>::const_iterator>> coloring = 
+    GraphColoring::make_graph_coloring(all_patches.cbegin(),
+                                       all_patches.cend(),
                                        get_conflict_indices);
   
   // Convert the coloring result to a color vector for each patch
@@ -838,9 +838,9 @@ PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
       for (const auto &patch_it : coloring[color])
         {
           // Find the index of this patch in all_patches
-          unsigned int patch_index = std::distance(all_patches.begin(), 
-                                                   std::find(all_patches.begin(), 
-                                                            all_patches.end(), 
+          unsigned int patch_index = std::distance(all_patches.cbegin(), 
+                                                   std::find(all_patches.cbegin(), 
+                                                            all_patches.cend(), 
                                                             *patch_it));
           patch_colors[patch_index] = color;
         }
