@@ -48,14 +48,14 @@
 #include <deal.II/numerics/matrix_tools.h>
 #include <deal.II/numerics/vector_tools.h>
 
-#include "Kokkos_Core.hpp"
-
 #include "../tests.h"
+
+#include "Kokkos_Core.hpp"
 
 using namespace dealii;
 
 
-template <int dim, int fe_degree, typename Number>
+template <int dim, int fe_degree, typename Number, int n_q_points_1d>
 class LaplaceOperatorQuad
 {
 public:
@@ -65,45 +65,58 @@ public:
 
   DEAL_II_HOST_DEVICE void
   operator()(
-    Portable::FEEvaluation<dim, fe_degree, fe_degree + 1, 1, Number> *phi,
-    const int                                                          q) const
+    Portable::FEEvaluation<dim, fe_degree, n_q_points_1d, 1, Number> *phi,
+    const int                                                         q) const
   {
     phi->submit_gradient(phi->get_gradient(q), q);
   }
+
+  static const unsigned int n_q_points =
+    dealii::Utilities::pow(n_q_points_1d, dim);
 };
 
 
-template <int dim, int fe_degree, typename Number>
+
+template <int dim, int fe_degree, typename Number, int n_q_points_1d>
 class LaplaceOperator
 {
 public:
-  LaplaceOperator(const Portable::MatrixFree<dim, Number> &matrix_free)
-    : matrix_free_(matrix_free)
+  static const unsigned int n_local_dofs =
+    dealii::Utilities::pow(fe_degree + 1, dim);
+  static const unsigned int n_q_points =
+    dealii::Utilities::pow(n_q_points_1d, dim);
+
+  LaplaceOperator()
   {}
 
-  void
-  vmult(LinearAlgebra::distributed::Vector<Number, MemorySpace::Default> &dst,
-        const LinearAlgebra::distributed::Vector<Number, MemorySpace::Default>
-          &src) const
+  DEAL_II_HOST_DEVICE void
+  operator()(const typename Portable::MatrixFree<dim, Number>::Data *data,
+             const Portable::DeviceVector<Number>                   &src,
+             Portable::DeviceVector<Number>                         &dst) const
   {
-    matrix_free_.cell_loop(LaplaceOperatorQuad<dim, fe_degree, Number>(),
-                           src,
-                           dst);
+    Portable::FEEvaluation<dim, fe_degree, n_q_points_1d, 1, Number> fe_eval(
+      data);
+    fe_eval.read_dof_values(src);
+    fe_eval.evaluate(EvaluationFlags::gradients);
+    fe_eval.apply_for_each_quad_point(
+      LaplaceOperatorQuad<dim, fe_degree, Number, n_q_points_1d>());
+    fe_eval.integrate(EvaluationFlags::gradients);
+    fe_eval.distribute_local_to_global(dst);
   }
-
-private:
-  const Portable::MatrixFree<dim, Number> &matrix_free_;
 };
+
 
 
 template <int dim, int fe_degree, typename Number>
 void
 test()
 {
-  const unsigned int test_level = 2;
+  const unsigned int test_level    = 3;
+  const unsigned int n_q_points_1d = fe_degree + 1;
 
-  // Create triangulation
-  Triangulation<dim> tria;
+  // Create triangulation with mesh smoothing for multigrid
+  Triangulation<dim> tria(
+    Triangulation<dim>::limit_level_difference_at_vertices);
   GridGenerator::hyper_cube(tria);
   tria.refine_global(3);
 
@@ -128,8 +141,8 @@ test()
   typename Portable::MatrixFree<dim, Number>::AdditionalData additional_data;
   additional_data.mapping_update_flags = update_gradients | update_JxW_values;
   additional_data.mg_level             = test_level;
-  const QGauss<1> quad(fe_degree + 1);
-  
+  const QGauss<1> quad(n_q_points_1d);
+
   mf_data.reinit(mapping, dof_handler, constraints, quad, additional_data);
 
   // Check that mg_level is stored correctly
@@ -138,7 +151,7 @@ test()
 
   // Create test vectors
   const unsigned int n_dofs = dof_handler.n_dofs(test_level);
-  
+
   LinearAlgebra::distributed::Vector<Number, MemorySpace::Default> src(n_dofs);
   LinearAlgebra::distributed::Vector<Number, MemorySpace::Default> dst_device(
     n_dofs);
@@ -159,8 +172,9 @@ test()
   src.import_elements(src_rw, VectorOperation::insert);
 
   // Apply operator using Portable::MatrixFree
-  LaplaceOperator<dim, fe_degree, Number> laplace_operator(mf_data);
-  laplace_operator.vmult(dst_device, src);
+  mf_data.cell_loop(LaplaceOperator<dim, fe_degree, Number, n_q_points_1d>(),
+                    src,
+                    dst_device);
   Kokkos::fence();
 
   // Copy result back to host
@@ -174,21 +188,22 @@ test()
     MGTools::make_sparsity_pattern(dof_handler, dsp, test_level);
     sparsity.copy_from(dsp);
   }
-  
+
   SparseMatrix<double> sparse_matrix(sparsity);
-  
+
   // Manually assemble the Laplace matrix on the level using FEValues
   {
-    QGauss<dim>  quadrature_formula(fe_degree + 1);
+    QGauss<dim>   quadrature_formula(fe_degree + 1);
     FEValues<dim> fe_values(mapping,
                             fe,
                             quadrature_formula,
-                            update_values | update_gradients | update_JxW_values);
+                            update_values | update_gradients |
+                              update_JxW_values);
 
     const unsigned int dofs_per_cell = fe.n_dofs_per_cell();
     const unsigned int n_q_points    = quadrature_formula.size();
 
-    FullMatrix<double>                   cell_matrix(dofs_per_cell, dofs_per_cell);
+    FullMatrix<double> cell_matrix(dofs_per_cell, dofs_per_cell);
     std::vector<types::global_dof_index> local_dof_indices(dofs_per_cell);
 
     for (const auto &cell : dof_handler.cell_iterators_on_level(test_level))
@@ -203,8 +218,7 @@ test()
                 for (unsigned int j = 0; j < dofs_per_cell; ++j)
                   cell_matrix(i, j) +=
                     (fe_values.shape_grad(i, q_point) *
-                     fe_values.shape_grad(j, q_point) *
-                     fe_values.JxW(q_point));
+                     fe_values.shape_grad(j, q_point) * fe_values.JxW(q_point));
               }
           }
 
@@ -222,7 +236,7 @@ test()
   Number error_norm = 0.;
   for (unsigned int i = 0; i < n_dofs; ++i)
     error_norm += std::pow(dst_rw(i) - dst_host(i), 2);
-  
+
   const double diff_norm = std::sqrt(error_norm) / dst_host.linfty_norm();
 
   deallog << "Norm of difference: " << diff_norm << std::endl << std::endl;
