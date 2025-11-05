@@ -266,12 +266,12 @@ RegularVertexPatch<dim>::has_conflict_with(
 
 template <int dim>
 GeneralVertexPatch<dim>::GeneralVertexPatch(
-  const std::set<CellIndex>                            &patch,
-  const types::global_vertex_index                     & /*vertex_index*/,
+  const std::set<CellIndex> &patch,
+  const types::global_vertex_index & /*vertex_index*/,
   const std::function<CellIterator(const CellIndex &)> &index2cell)
 {
   cells.assign(patch.begin(), patch.end());
-  
+
   // Check if any cells are ghosted
   this->partially_ghosted = false;
   for (const auto &cell_index : cells)
@@ -359,10 +359,8 @@ PatchStorage<MFType>::initialize(const AdditionalData &data)
     {
       const auto &dof_handler = matrix_free->get_dof_handler(component);
 
-      IndexSet locally_relevant_dofs;
-      DoFTools::extract_locally_relevant_level_dofs(dof_handler,
-                                                    level,
-                                                    locally_relevant_dofs);
+      IndexSet locally_relevant_dofs =
+        DoFTools::extract_locally_relevant_level_dofs(dof_handler, level);
 
       std::set<types::global_dof_index> locally_relevant_dofs_set;
       for (auto [vertex_index, patch] : vertex_to_cell_map)
@@ -786,71 +784,54 @@ template <class MFType>
 std::vector<unsigned int>
 PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
 {
-  (void)parallel_cat; // Currently unused, kept for future extension
-  
   Assert(is_initialized, ExcNotInitialized());
-  
-  // Collect all regular patches across all parallel categories into a single vector
-  std::vector<RegularPatch*> all_patches;
-  for (unsigned int cat = 0; cat < TaskInfoType::n_categories; ++cat)
-    {
-      for (auto &patch : regular_patches[cat])
-        {
-          all_patches.push_back(&patch);
-        }
-    }
-  
-  const unsigned int n_patches_total = all_patches.size();
-  
+
+  // Work only on the requested parallel category
+  AssertIndexRange(parallel_cat, regular_patches.size());
+
+  const auto        &patch_cat       = regular_patches[parallel_cat];
+  const unsigned int n_patches_total = patch_cat.size();
+
   if (n_patches_total == 0)
     return std::vector<unsigned int>();
-  
-  // Create a map from patch pointer to index for O(1) lookup
-  std::map<const RegularPatch*, unsigned int> patch_to_index;
+
+  // Build a mapping from patch address to index for O(1) lookup later.
+  std::map<const RegularPatch *, unsigned int> patch_to_index;
   for (unsigned int i = 0; i < n_patches_total; ++i)
-    {
-      patch_to_index[all_patches[i]] = i;
-    }
-  
-  // Create a conflict function for graph coloring
-  // Two patches conflict if they have overlapping cells
-  auto get_conflict_indices = 
-    [&](const std::vector<RegularPatch*>::const_iterator &patch_it) 
+    patch_to_index[&patch_cat[i]] = i;
+
+  // Conflict function for graph coloring. Two patches conflict if they
+  // share any cell index. The GraphColoring API expects a function that
+  // maps an iterator to a vector of indices that indicate conflicts.
+  auto get_conflict_indices =
+    [&](const typename std::vector<RegularPatch>::const_iterator &patch_it)
     -> std::vector<types::global_dof_index> {
-      const RegularPatch &patch = **patch_it;
-      const auto cells_vector = patch.get_cells_vector();
-      
-      // Convert cell indices to conflict indices
-      // We use the cell indices themselves as conflict indicators
-      std::vector<types::global_dof_index> conflict_indices;
-      conflict_indices.reserve(cells_vector.size());
-      for (const auto &cell_idx : cells_vector)
-        {
-          conflict_indices.push_back(static_cast<types::global_dof_index>(cell_idx));
-        }
-      return conflict_indices;
-    };
-  
-  // Use GraphColoring to color the patches
-  std::vector<std::vector<std::vector<RegularPatch*>::const_iterator>> coloring = 
-    GraphColoring::make_graph_coloring(all_patches.cbegin(),
-                                       all_patches.cend(),
-                                       get_conflict_indices);
-  
-  // Convert the coloring result to a color vector for each patch
+    const RegularPatch &patch        = *patch_it;
+    const auto          cells_vector = patch.get_cells_vector();
+
+    std::vector<types::global_dof_index> conflict_indices;
+    conflict_indices.reserve(cells_vector.size());
+    for (const auto &cell_idx : cells_vector)
+      conflict_indices.push_back(
+        static_cast<types::global_dof_index>(cell_idx));
+    return conflict_indices;
+  };
+
+  // Perform graph coloring on the patches of the selected category.
+  auto coloring = GraphColoring::make_graph_coloring(patch_cat.cbegin(),
+                                                     patch_cat.cend(),
+                                                     get_conflict_indices);
+
+  // Convert coloring result to a vector of colors per patch in this category
   std::vector<unsigned int> patch_colors(n_patches_total);
-  
   for (unsigned int color = 0; color < coloring.size(); ++color)
-    {
-      for (const auto &patch_it : coloring[color])
-        {
-          // Use the map to find the index in O(1) time
-          const RegularPatch* patch_ptr = *patch_it;
-          unsigned int patch_index = patch_to_index.at(patch_ptr);
-          patch_colors[patch_index] = color;
-        }
-    }
-  
+    for (const auto &patch_it : coloring[color])
+      {
+        const RegularPatch *patch_ptr   = &*patch_it;
+        const unsigned int  patch_index = patch_to_index.at(patch_ptr);
+        patch_colors[patch_index]       = color;
+      }
+
   return patch_colors;
 }
 
