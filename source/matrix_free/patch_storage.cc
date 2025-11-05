@@ -183,9 +183,9 @@ namespace internal
 
 template <int dim>
 RegularVertexPatch<dim>::RegularVertexPatch(
-  const std::set<typename VertexPatchBase<dim>::CellIndex>                            &patch,
+  const std::set<CellIndex>                            &patch,
   const types::global_vertex_index                     &vertex_index,
-  const std::function<typename VertexPatchBase<dim>::CellIterator(const typename VertexPatchBase<dim>::CellIndex &)> &index2cell)
+  const std::function<CellIterator(const CellIndex &)> &index2cell)
 {
   if constexpr (dim == 2)
     {
@@ -266,9 +266,9 @@ RegularVertexPatch<dim>::has_conflict_with(
 
 template <int dim>
 GeneralVertexPatch<dim>::GeneralVertexPatch(
-  const std::set<typename VertexPatchBase<dim>::CellIndex> &patch,
-  const types::global_vertex_index & /*vertex_index*/,
-  const std::function<typename VertexPatchBase<dim>::CellIterator(const typename VertexPatchBase<dim>::CellIndex &)> &index2cell)
+  const std::set<CellIndex>                            &patch,
+  const types::global_vertex_index                     & /*vertex_index*/,
+  const std::function<CellIterator(const CellIndex &)> &index2cell)
 {
   cells.assign(patch.begin(), patch.end());
   

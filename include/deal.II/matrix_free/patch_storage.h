@@ -198,6 +198,12 @@ template <int dim>
 struct RegularVertexPatch : public VertexPatchBase<dim>
 {
   /**
+   * Import type definitions from base class for convenience.
+   */
+  using typename VertexPatchBase<dim>::CellIndex;
+  using typename VertexPatchBase<dim>::CellIterator;
+
+  /**
    * Type used to represent the orientation of a cell within a regular patch.
    */
   using CellOrientation = unsigned int;
@@ -221,9 +227,9 @@ struct RegularVertexPatch : public VertexPatchBase<dim>
    * `CellIterator`.
    */
   RegularVertexPatch(
-    const std::set<typename VertexPatchBase<dim>::CellIndex>                            &patch,
+    const std::set<CellIndex>                            &patch,
     const types::global_vertex_index                     &vertex_index,
-    const std::function<typename VertexPatchBase<dim>::CellIterator(const typename VertexPatchBase<dim>::CellIndex &)> &index2cell);
+    const std::function<CellIterator(const CellIndex &)> &index2cell);
 
 
 
@@ -262,10 +268,10 @@ struct RegularVertexPatch : public VertexPatchBase<dim>
    *
    * @return A vector of CellIndex values representing the cells in the patch.
    */
-  virtual std::vector<typename VertexPatchBase<dim>::CellIndex>
+  virtual std::vector<CellIndex>
   get_cells_vector() const override
   {
-    return std::vector<typename VertexPatchBase<dim>::CellIndex>(cells.begin(), cells.end());
+    return std::vector<CellIndex>(cells.begin(), cells.end());
   }
 
 
@@ -301,9 +307,9 @@ struct RegularVertexPatch : public VertexPatchBase<dim>
    */
   static bool
   is_constructible(
-    const std::set<typename VertexPatchBase<dim>::CellIndex>                            &patch,
+    const std::set<CellIndex>                            &patch,
     const types::global_vertex_index                     &vertex_index,
-    const std::function<typename VertexPatchBase<dim>::CellIterator(const typename VertexPatchBase<dim>::CellIndex &)> &index2cell)
+    const std::function<CellIterator(const CellIndex &)> &index2cell)
   {
     (void)vertex_index;
     (void)index2cell;
@@ -313,7 +319,7 @@ struct RegularVertexPatch : public VertexPatchBase<dim>
   }
 
 private:
-  std::array<typename VertexPatchBase<dim>::CellIndex, n_cells>       cells;
+  std::array<CellIndex, n_cells>       cells;
   std::array<CellOrientation, n_cells> orientations;
 };
 
@@ -328,6 +334,12 @@ private:
 template <int dim>
 struct GeneralVertexPatch : public VertexPatchBase<dim>
 {
+  /**
+   * Import type definitions from base class for convenience.
+   */
+  using typename VertexPatchBase<dim>::CellIndex;
+  using typename VertexPatchBase<dim>::CellIterator;
+
   const static constexpr int dimension        = dim;
   const static bool          is_constant_size = false;
 
@@ -342,9 +354,9 @@ struct GeneralVertexPatch : public VertexPatchBase<dim>
    * `CellIterator` (unused in current implementation).
    */
   GeneralVertexPatch(
-    const std::set<typename VertexPatchBase<dim>::CellIndex>                            &patch,
-    const types::global_vertex_index                         &vertex_index,
-    const std::function<typename VertexPatchBase<dim>::CellIterator(const typename VertexPatchBase<dim>::CellIndex &)> &index2cell);
+    const std::set<CellIndex>                            &patch,
+    const types::global_vertex_index                     &vertex_index,
+    const std::function<CellIterator(const CellIndex &)> &index2cell);
 
   /**
    *  Returns the number of cells in the patch.
@@ -372,14 +384,14 @@ struct GeneralVertexPatch : public VertexPatchBase<dim>
    *
    * @return A vector of CellIndex values representing the cells in the patch.
    */
-  virtual std::vector<typename VertexPatchBase<dim>::CellIndex>
+  virtual std::vector<CellIndex>
   get_cells_vector() const override
   {
     return cells;
   }
 
 private:
-  std::vector<typename VertexPatchBase<dim>::CellIndex> cells;
+  std::vector<CellIndex> cells;
 };
 
 /**
