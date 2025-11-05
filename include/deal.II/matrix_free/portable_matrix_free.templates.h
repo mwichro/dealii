@@ -246,7 +246,7 @@ namespace Portable
             (*cell)->get_dof_indices(local_dof_indices);
           else
             (*cell)->get_mg_dof_indices(local_dof_indices);
-            
+
           // When using MPI, we need to transform the local_dof_indices, which
           // contain global numbers of dof indices in the MPI universe, to get
           // local (to the current MPI process) dof indices.
@@ -1003,7 +1003,7 @@ namespace Portable
           locally_relevant_dofs,
           *comm);
       }
-    
+
     if (mg_level == numbers::invalid_unsigned_int)
       {
         for (unsigned int color = 0; color < n_colors; ++color)
@@ -1054,7 +1054,7 @@ namespace Portable
           }
         else
           {
-            const unsigned int n_local_dofs = 
+            const unsigned int n_local_dofs =
               (mg_level == numbers::invalid_unsigned_int) ?
                 dof_handler->n_dofs() :
                 dof_handler->n_dofs(mg_level);
