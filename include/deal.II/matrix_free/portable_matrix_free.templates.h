@@ -327,6 +327,23 @@ namespace Portable
 
 
 
+    template <int dim, typename number>
+    std::vector<types::global_dof_index>
+    get_conflict_indices(
+      const FilteredIterator<typename DoFHandler<dim>::level_cell_iterator>
+                                      &cell,
+      const AffineConstraints<number> &constraints)
+    {
+      std::vector<types::global_dof_index> local_dof_indices(
+        cell->get_fe().n_dofs_per_cell());
+      cell->get_mg_dof_indices(local_dof_indices);
+      constraints.resolve_indices(local_dof_indices);
+
+      return local_dof_indices;
+    }
+
+
+
     template <typename VectorType>
     struct VectorLocalSize
     {
@@ -891,8 +908,8 @@ namespace Portable
             if (additional_data.use_coloring)
               {
                 const auto fun = [&](const CellFilter &filter) {
-                  return internal::get_conflict_indices<dim, Number>(filter,
-                                                                     constraints);
+                  return internal::get_conflict_indices<dim, Number>(
+                    filter, constraints);
                 };
                 graph = GraphColoring::make_graph_coloring(begin, end, fun);
               }
@@ -901,24 +918,25 @@ namespace Portable
                 graph.clear();
                 if (additional_data.overlap_communication_computation)
                   {
-                    // We create one color (1) with the cells on the boundary of the
-                    // local domain and two colors (0 and 2) with the interior
-                    // cells.
+                    // We create one color (1) with the cells on the boundary of
+                    // the local domain and two colors (0 and 2) with the
+                    // interior cells.
                     graph.resize(3, std::vector<CellFilter>());
 
                     std::vector<bool> ghost_vertices(
                       dof_handler->get_triangulation().n_vertices(), false);
 
-                    for (const auto &cell :
-                         dof_handler->get_triangulation().active_cell_iterators())
+                    for (const auto &cell : dof_handler->get_triangulation()
+                                              .active_cell_iterators())
                       if (cell->is_ghost())
                         for (unsigned int i = 0;
                              i < GeometryInfo<dim>::vertices_per_cell;
                              i++)
                           ghost_vertices[cell->vertex_index(i)] = true;
 
-                    std::vector<dealii::FilteredIterator<dealii::TriaActiveIterator<
-                      dealii::DoFCellAccessor<dim, dim, false>>>>
+                    std::vector<
+                      dealii::FilteredIterator<dealii::TriaActiveIterator<
+                        dealii::DoFCellAccessor<dim, dim, false>>>>
                       inner_cells;
 
                     for (auto cell = begin; cell != end; ++cell)
@@ -971,14 +989,16 @@ namespace Portable
             if (additional_data.use_coloring)
               {
                 const auto fun = [&](const LevelCellFilter &filter) {
-                  return internal::get_conflict_indices<dim, Number>(filter,
-                                                                     constraints);
+                  return internal::get_conflict_indices<dim, Number>(
+                    filter, constraints);
                 };
-                level_graph = GraphColoring::make_graph_coloring(begin, end, fun);
+                level_graph =
+                  GraphColoring::make_graph_coloring(begin, end, fun);
               }
             else
               {
-                // If we are not using coloring, all the cells belong to the same color
+                // If we are not using coloring, all the cells belong to the
+                // same color
                 level_graph.clear();
                 level_graph.resize(1, std::vector<LevelCellFilter>());
                 for (auto cell = begin; cell != end; ++cell)
@@ -998,7 +1018,8 @@ namespace Portable
             DoFTools::extract_locally_relevant_dofs(*dof_handler);
         else
           locally_relevant_dofs =
-            DoFTools::extract_locally_relevant_level_dofs(*dof_handler, mg_level);
+            DoFTools::extract_locally_relevant_level_dofs(*dof_handler,
+                                                          mg_level);
         partitioner = std::make_shared<Utilities::MPI::Partitioner>(
           (mg_level == numbers::invalid_unsigned_int) ?
             dof_handler->locally_owned_dofs() :
@@ -1061,7 +1082,7 @@ namespace Portable
               (mg_level == numbers::invalid_unsigned_int) ?
                 dof_handler->n_dofs() :
                 dof_handler->n_dofs(mg_level);
-            unsigned int       i_constraint = 0;
+            unsigned int i_constraint = 0;
             for (unsigned int i = 0; i < n_local_dofs; ++i)
               {
                 if (constraints.is_constrained(i))
