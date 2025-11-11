@@ -564,7 +564,7 @@ namespace Portable
      * Return the DoFHandler.
      */
     const DoFHandler<dim> &
-    get_dof_handler() const;
+    get_dof_handler(const unsigned int dof_handler_index = 0) const;
 
     /**
      * Return the local smoothing multigrid level that this object has been
@@ -579,9 +579,12 @@ namespace Portable
      *
      * @param batch The batch index (color index in the internal storage)
      * @param color The lane index (must be 0 for GPU implementations)
+     * @param dof_handler_index Index of the DoFHandler (default 0)
      */
-    DoFHandler<dim>::cell_iterator
-    get_cell_iterator(const unsigned int batch, const unsigned int color) const;
+    typename DoFHandler<dim>::cell_iterator
+    get_cell_iterator(const unsigned int batch,
+                      const unsigned int color,
+                      const unsigned int dof_handler_index = 0) const;
 
     /**
      * Return an approximation of the memory consumption of this class in bytes.
@@ -1040,9 +1043,11 @@ namespace Portable
 
   template <int dim, typename Number>
   inline const DoFHandler<dim> &
-  MatrixFree<dim, Number>::get_dof_handler() const
+  MatrixFree<dim, Number>::get_dof_handler(
+    const unsigned int dof_handler_index) const
   {
-    Assert(dof_handler != nullptr, ExcNotInitialized());
+    // Multiple DoFHandlers not yet supported
+    AssertIndexRange(dof_handler_index, 1);
 
     return *dof_handler;
   }
@@ -1059,24 +1064,24 @@ namespace Portable
 
 
   template <int dim, typename Number>
-  DoFHandler<dim>::cell_iterator
+  typename DoFHandler<dim>::cell_iterator
   MatrixFree<dim, Number>::get_cell_iterator(
     const unsigned int batch,
     const unsigned int color,
     const unsigned int dof_handler_index) const
   {
-    AssertIndexRange(color, batch_to_cell_index.size());
-    AssertIndexRange(batch, batch_to_cell_index[color].size());
-    AssertIndexRange(dof_handler_index, dof_handlers.size());
+    AssertIndexRange(color, cell_level_index.size());
+    AssertIndexRange(batch, cell_level_index[color].size());
+    // Multiple DoFHandlers not yet supported
+    AssertIndexRange(dof_handler_index, 1);
 
-
-    std::pair<unsigned int, unsigned int> index =
+    const std::pair<unsigned int, unsigned int> &index =
       cell_level_index[color][batch];
-    return typename DoFHandler<dim>::cell_iterator(
-      &dof_handlers[dof_handler_index]->get_triangulation(),
-      index.first,
-      index.second,
-      &*dof_handlers[dof_handler_index]);
+    return
+      typename DoFHandler<dim>::cell_iterator(&dof_handler->get_triangulation(),
+                                              index.first,
+                                              index.second,
+                                              dof_handler);
   }
 
 
