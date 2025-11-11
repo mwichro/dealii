@@ -140,6 +140,9 @@ namespace Portable
 
       data->row_start.resize(n_colors);
 
+      // Resize the batch_to_cell_index mapping
+      data->batch_to_cell_index.resize(n_colors);
+
       if (update_flags & update_quadrature_points)
         data->q_points.resize(n_colors);
 
@@ -238,9 +241,22 @@ namespace Portable
           Kokkos::create_mirror_view(data->inv_jacobian[color]);
 #endif
 
+      // Resize the batch_to_cell_index for this color to store one cell index
+      // per cell (lane is always 0 for GPU)
+      data->batch_to_cell_index[color].resize(n_cells);
+
       auto cell = graph.cbegin(), end_cell = graph.cend();
       for (unsigned int cell_id = 0; cell != end_cell; ++cell, ++cell_id)
         {
+          // Store the cell index mapping (batch -> cell index)
+          // For active cells, use active_cell_index(); for level cells, use
+          // index()
+          if (data->get_mg_level() == numbers::invalid_unsigned_int)
+            data->batch_to_cell_index[color][cell_id] =
+              (*cell)->active_cell_index();
+          else
+            data->batch_to_cell_index[color][cell_id] = (*cell)->index();
+
           // Get DOF indices - use mg_dof_indices for level cells
           if (data->get_mg_level() == numbers::invalid_unsigned_int)
             (*cell)->get_dof_indices(local_dof_indices);

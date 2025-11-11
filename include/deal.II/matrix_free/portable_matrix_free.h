@@ -575,6 +575,19 @@ namespace Portable
     get_mg_level() const;
 
     /**
+     * Return the active cell index for a given batch and lane.
+     * For GPU implementations, lanes are not used, so lane must be 0.
+     * The cell index is the one returned by cell->active_cell_index() for
+     * active cells, or the level cell index for multigrid level cells.
+     *
+     * @param batch The batch index (color index in the internal storage)
+     * @param lane The lane index within the batch (must be 0 for GPU)
+     */
+    unsigned int
+    get_active_cell_index(const unsigned int batch,
+                          const unsigned int lane) const;
+
+    /**
      * Return an approximation of the memory consumption of this class in bytes.
      */
     std::size_t
@@ -794,6 +807,13 @@ namespace Portable
      * Row start of each color.
      */
     std::vector<unsigned int> row_start;
+
+    /**
+     * Mapping from batch (color) and lane (always 0 for GPU) to the
+     * active_cell_index() or level cell index. For each color/batch,
+     * stores the cell indices in order.
+     */
+    std::vector<std::vector<unsigned int>> batch_to_cell_index;
 
     /**
      * Pointer to the DoFHandler associated with the object.
@@ -1038,6 +1058,24 @@ namespace Portable
   MatrixFree<dim, Number>::get_mg_level() const
   {
     return mg_level;
+  }
+
+
+
+  template <int dim, typename Number>
+  inline unsigned int
+  MatrixFree<dim, Number>::get_active_cell_index(
+    const unsigned int batch,
+    const unsigned int lane) const
+  {
+    // For GPU implementations, there are no lanes, so lane must be 0
+    Assert(lane == 0,
+           ExcMessage(
+             "Portable::MatrixFree does not support lanes. Lane must be 0."));
+    AssertIndexRange(batch, batch_to_cell_index.size());
+    AssertIndexRange(lane, batch_to_cell_index[batch].size());
+
+    return batch_to_cell_index[batch][lane];
   }
 
 #endif
