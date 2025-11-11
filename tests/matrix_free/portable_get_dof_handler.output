@@ -1,0 +1,7 @@
+
+DEAL::OK: get_dof_handler() returns the correct DoFHandler
+DEAL::OK: get_dof_handler(0) returns the correct DoFHandler
+DEAL::Number of dofs: 25
+DEAL::OK: get_dof_handler() returns the correct DoFHandler
+DEAL::OK: get_dof_handler(0) returns the correct DoFHandler
+DEAL::Number of dofs: 125
