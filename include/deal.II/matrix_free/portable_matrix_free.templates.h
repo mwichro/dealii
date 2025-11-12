@@ -696,7 +696,7 @@ namespace Portable
   {
     const unsigned int n_q_points = Functor::n_q_points;
 
-    for (unsigned int color = 0; color < n_colors; ++color)
+    for (unsigned int color = 0; color < n_colors(); ++color)
       if (n_cells[color] > 0)
         {
           auto color_data = get_data(color);
@@ -744,7 +744,7 @@ namespace Portable
 
     // For each color, add local_to_global, inv_jacobian, JxW, and q_points.
     // FIXME
-    for (unsigned int color = 0; color < n_colors; ++color)
+    for (unsigned int color = 0; color < n_colors(); ++color)
       {
         bytes += n_cells[color] * padding_length * sizeof(unsigned int) +
                  n_cells[color] * padding_length * dim * dim * sizeof(Number) +
@@ -987,7 +987,7 @@ namespace Portable
                   }
               }
           }
-        n_colors = graph.size();
+        n_colors_internal = graph.size();
       }
     else
       {
@@ -1019,10 +1019,10 @@ namespace Portable
                   level_graph[0].emplace_back(cell);
               }
           }
-        n_colors = level_graph.size();
+        n_colors_internal = level_graph.size();
       }
 
-    helper.resize(n_colors);
+    helper.resize(n_colors());
 
     IndexSet locally_relevant_dofs;
     if (comm)
@@ -1044,7 +1044,7 @@ namespace Portable
 
     if (mg_level == numbers::invalid_unsigned_int)
       {
-        for (unsigned int color = 0; color < n_colors; ++color)
+        for (unsigned int color = 0; color < n_colors(); ++color)
           {
             n_cells[color] = graph[color].size();
             helper.fill_data(color, graph[color], partitioner);
@@ -1052,7 +1052,7 @@ namespace Portable
       }
     else
       {
-        for (unsigned int color = 0; color < n_colors; ++color)
+        for (unsigned int color = 0; color < n_colors(); ++color)
           {
             n_cells[color] = level_graph[color].size();
             helper.fill_data(color, level_graph[color], partitioner);
@@ -1060,9 +1060,9 @@ namespace Portable
       }
 
     // Setup row starts
-    if (n_colors > 0)
+    if (n_colors() > 0)
       row_start[0] = 0;
-    for (unsigned int color = 1; color < n_colors; ++color)
+    for (unsigned int color = 1; color < n_colors(); ++color)
       row_start[color] =
         row_start[color - 1] + n_cells[color - 1] * get_padding_length();
 

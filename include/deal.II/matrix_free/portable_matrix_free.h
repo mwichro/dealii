@@ -587,6 +587,20 @@ namespace Portable
                       const unsigned int dof_handler_index = 0) const;
 
     /**
+     * Return the number of colors.
+     */
+    constexpr unsigned int
+    n_colors() const;
+
+    /**
+     * Return the number of entries (cells) per color.
+     *
+     * @param color The color index
+     */
+    unsigned int
+    n_entries_per_color(const unsigned int color) const;
+
+    /**
      * Return an approximation of the memory consumption of this class in bytes.
      */
     std::size_t
@@ -716,7 +730,7 @@ namespace Portable
     /**
      * Number of colors produced by the graph coloring algorithm.
      */
-    unsigned int n_colors;
+    unsigned int n_colors_internal;
 
     /**
      * Number of cells in each color.
@@ -1082,6 +1096,21 @@ namespace Portable
                                               index.first,
                                               index.second,
                                               dof_handler);
+  }
+
+  template <int dim, typename Number>
+  inline unsigned int
+  MatrixFree<dim, Number>::n_entries_per_color(const unsigned int color) const
+  {
+    AssertIndexRange(color, n_cells.size());
+    return n_cells[color];
+  }
+
+  template <int dim, typename Number>
+  inline constexpr unsigned int
+  MatrixFree<dim, Number>::n_colors() const
+  {
+    return n_colors_internal;
   }
 
 

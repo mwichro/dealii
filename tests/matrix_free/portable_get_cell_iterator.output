@@ -1,91 +1,13 @@
 
 DEAL::Number of colors: 1
 DEAL::Color 0 has 16 cells
-DEAL::  Cell (batch=0, color=0): center = 0.125 0.125, level = 2, index = 0
-DEAL::  Cell (batch=1, color=0): center = 0.375 0.125, level = 2, index = 1
-DEAL::  Cell (batch=2, color=0): center = 0.625 0.125, level = 2, index = 2
-DEAL::  Cell (batch=3, color=0): center = 0.875 0.125, level = 2, index = 3
-DEAL::  Cell (batch=4, color=0): center = 0.125 0.375, level = 2, index = 4
-DEAL::  Cell (batch=5, color=0): center = 0.375 0.375, level = 2, index = 5
-DEAL::  Cell (batch=6, color=0): center = 0.625 0.375, level = 2, index = 6
-DEAL::  Cell (batch=7, color=0): center = 0.875 0.375, level = 2, index = 7
-DEAL::  Cell (batch=8, color=0): center = 0.125 0.625, level = 2, index = 8
-DEAL::  Cell (batch=9, color=0): center = 0.375 0.625, level = 2, index = 9
-DEAL::  Cell (batch=10, color=0): center = 0.625 0.625, level = 2, index = 10
-DEAL::  Cell (batch=11, color=0): center = 0.875 0.625, level = 2, index = 11
-DEAL::  Cell (batch=12, color=0): center = 0.125 0.875, level = 2, index = 12
-DEAL::  Cell (batch=13, color=0): center = 0.375 0.875, level = 2, index = 13
-DEAL::  Cell (batch=14, color=0): center = 0.625 0.875, level = 2, index = 14
-DEAL::  Cell (batch=15, color=0): center = 0.875 0.875, level = 2, index = 15
 DEAL::Total cells processed: 16
 DEAL::Active cells in triangulation: 16
 DEAL::OK: Number of cells matches
+DEAL::Matches: 16, Mismatches: 0
 DEAL::Number of colors: 1
 DEAL::Color 0 has 64 cells
-DEAL::  Cell (batch=0, color=0): center = 0.125 0.125 0.125, level = 2, index = 0
-DEAL::  Cell (batch=1, color=0): center = 0.375 0.125 0.125, level = 2, index = 1
-DEAL::  Cell (batch=2, color=0): center = 0.625 0.125 0.125, level = 2, index = 2
-DEAL::  Cell (batch=3, color=0): center = 0.875 0.125 0.125, level = 2, index = 3
-DEAL::  Cell (batch=4, color=0): center = 0.125 0.375 0.125, level = 2, index = 4
-DEAL::  Cell (batch=5, color=0): center = 0.375 0.375 0.125, level = 2, index = 5
-DEAL::  Cell (batch=6, color=0): center = 0.625 0.375 0.125, level = 2, index = 6
-DEAL::  Cell (batch=7, color=0): center = 0.875 0.375 0.125, level = 2, index = 7
-DEAL::  Cell (batch=8, color=0): center = 0.125 0.625 0.125, level = 2, index = 8
-DEAL::  Cell (batch=9, color=0): center = 0.375 0.625 0.125, level = 2, index = 9
-DEAL::  Cell (batch=10, color=0): center = 0.625 0.625 0.125, level = 2, index = 10
-DEAL::  Cell (batch=11, color=0): center = 0.875 0.625 0.125, level = 2, index = 11
-DEAL::  Cell (batch=12, color=0): center = 0.125 0.875 0.125, level = 2, index = 12
-DEAL::  Cell (batch=13, color=0): center = 0.375 0.875 0.125, level = 2, index = 13
-DEAL::  Cell (batch=14, color=0): center = 0.625 0.875 0.125, level = 2, index = 14
-DEAL::  Cell (batch=15, color=0): center = 0.875 0.875 0.125, level = 2, index = 15
-DEAL::  Cell (batch=16, color=0): center = 0.125 0.125 0.375, level = 2, index = 16
-DEAL::  Cell (batch=17, color=0): center = 0.375 0.125 0.375, level = 2, index = 17
-DEAL::  Cell (batch=18, color=0): center = 0.625 0.125 0.375, level = 2, index = 18
-DEAL::  Cell (batch=19, color=0): center = 0.875 0.125 0.375, level = 2, index = 19
-DEAL::  Cell (batch=20, color=0): center = 0.125 0.375 0.375, level = 2, index = 20
-DEAL::  Cell (batch=21, color=0): center = 0.375 0.375 0.375, level = 2, index = 21
-DEAL::  Cell (batch=22, color=0): center = 0.625 0.375 0.375, level = 2, index = 22
-DEAL::  Cell (batch=23, color=0): center = 0.875 0.375 0.375, level = 2, index = 23
-DEAL::  Cell (batch=24, color=0): center = 0.125 0.625 0.375, level = 2, index = 24
-DEAL::  Cell (batch=25, color=0): center = 0.375 0.625 0.375, level = 2, index = 25
-DEAL::  Cell (batch=26, color=0): center = 0.625 0.625 0.375, level = 2, index = 26
-DEAL::  Cell (batch=27, color=0): center = 0.875 0.625 0.375, level = 2, index = 27
-DEAL::  Cell (batch=28, color=0): center = 0.125 0.875 0.375, level = 2, index = 28
-DEAL::  Cell (batch=29, color=0): center = 0.375 0.875 0.375, level = 2, index = 29
-DEAL::  Cell (batch=30, color=0): center = 0.625 0.875 0.375, level = 2, index = 30
-DEAL::  Cell (batch=31, color=0): center = 0.875 0.875 0.375, level = 2, index = 31
-DEAL::  Cell (batch=32, color=0): center = 0.125 0.125 0.625, level = 2, index = 32
-DEAL::  Cell (batch=33, color=0): center = 0.375 0.125 0.625, level = 2, index = 33
-DEAL::  Cell (batch=34, color=0): center = 0.625 0.125 0.625, level = 2, index = 34
-DEAL::  Cell (batch=35, color=0): center = 0.875 0.125 0.625, level = 2, index = 35
-DEAL::  Cell (batch=36, color=0): center = 0.125 0.375 0.625, level = 2, index = 36
-DEAL::  Cell (batch=37, color=0): center = 0.375 0.375 0.625, level = 2, index = 37
-DEAL::  Cell (batch=38, color=0): center = 0.625 0.375 0.625, level = 2, index = 38
-DEAL::  Cell (batch=39, color=0): center = 0.875 0.375 0.625, level = 2, index = 39
-DEAL::  Cell (batch=40, color=0): center = 0.125 0.625 0.625, level = 2, index = 40
-DEAL::  Cell (batch=41, color=0): center = 0.375 0.625 0.625, level = 2, index = 41
-DEAL::  Cell (batch=42, color=0): center = 0.625 0.625 0.625, level = 2, index = 42
-DEAL::  Cell (batch=43, color=0): center = 0.875 0.625 0.625, level = 2, index = 43
-DEAL::  Cell (batch=44, color=0): center = 0.125 0.875 0.625, level = 2, index = 44
-DEAL::  Cell (batch=45, color=0): center = 0.375 0.875 0.625, level = 2, index = 45
-DEAL::  Cell (batch=46, color=0): center = 0.625 0.875 0.625, level = 2, index = 46
-DEAL::  Cell (batch=47, color=0): center = 0.875 0.875 0.625, level = 2, index = 47
-DEAL::  Cell (batch=48, color=0): center = 0.125 0.125 0.875, level = 2, index = 48
-DEAL::  Cell (batch=49, color=0): center = 0.375 0.125 0.875, level = 2, index = 49
-DEAL::  Cell (batch=50, color=0): center = 0.625 0.125 0.875, level = 2, index = 50
-DEAL::  Cell (batch=51, color=0): center = 0.875 0.125 0.875, level = 2, index = 51
-DEAL::  Cell (batch=52, color=0): center = 0.125 0.375 0.875, level = 2, index = 52
-DEAL::  Cell (batch=53, color=0): center = 0.375 0.375 0.875, level = 2, index = 53
-DEAL::  Cell (batch=54, color=0): center = 0.625 0.375 0.875, level = 2, index = 54
-DEAL::  Cell (batch=55, color=0): center = 0.875 0.375 0.875, level = 2, index = 55
-DEAL::  Cell (batch=56, color=0): center = 0.125 0.625 0.875, level = 2, index = 56
-DEAL::  Cell (batch=57, color=0): center = 0.375 0.625 0.875, level = 2, index = 57
-DEAL::  Cell (batch=58, color=0): center = 0.625 0.625 0.875, level = 2, index = 58
-DEAL::  Cell (batch=59, color=0): center = 0.875 0.625 0.875, level = 2, index = 59
-DEAL::  Cell (batch=60, color=0): center = 0.125 0.875 0.875, level = 2, index = 60
-DEAL::  Cell (batch=61, color=0): center = 0.375 0.875 0.875, level = 2, index = 61
-DEAL::  Cell (batch=62, color=0): center = 0.625 0.875 0.875, level = 2, index = 62
-DEAL::  Cell (batch=63, color=0): center = 0.875 0.875 0.875, level = 2, index = 63
 DEAL::Total cells processed: 64
 DEAL::Active cells in triangulation: 64
 DEAL::OK: Number of cells matches
+DEAL::Matches: 64, Mismatches: 0
