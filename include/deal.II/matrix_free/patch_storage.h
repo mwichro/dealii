@@ -487,19 +487,24 @@ public:
     };
 
     /**
-     * Default constructor. Initializes the excluded vertices set with
-     * an invalid index and sets the default parallel scheme to 'none'.
+     * Default constructor. Initializes the include predicate to a function
+     * that includes every vertex and sets the default parallel scheme to
+     * 'none'.
      */
     AdditionalData()
-      : excluded_vertices{numbers::invalid_unsigned_int}
+      : include_vertex([](const types::global_vertex_index &) { return true; })
       , tasks_parallel_scheme(none)
     {}
 
     /**
-     * A set of global vertex indices that should be excluded during
-     * patch generation.
+     * Predicate used to decide whether a given global vertex index should be
+     * included during patch generation. It should return true to include the
+     * vertex, false to skip it.
+     *
+     * Use a std::function so callers can provide either a function pointer or
+     * a lambda/callable.
      */
-    std::set<types::global_vertex_index> excluded_vertices;
+    std::function<bool(const types::global_vertex_index &)> include_vertex;
 
     /**
      * The parallel task scheduling scheme to use.
@@ -735,27 +740,93 @@ public:
   output_centerpoints(const std::string &filename_without_extension) const;
 
 private:
+  /**
+   * Shared pointer to the MatrixFree instance used to query cell/batch
+   * information, FE data and geometry needed to build and inspect patches.
+   * Stored as a shared_ptr to keep access to MatrixFree facilities without
+   * taking ownership of the underlying triangulation.
+   */
   std::shared_ptr<const MatrixFreeType> matrix_free;
-  const Triangulation<dim>             &triangulation;
 
-  const MPI_Comm     mpi_communicator;
+  /**
+   * Reference to the triangulation associated with the MatrixFree object.
+   * This reference must remain valid for the lifetime of this PatchStorage
+   * instance (triangulation is not owned here).
+   */
+  const Triangulation<dim> &triangulation;
+
+  /**
+   * MPI communicator used for parallel I/O and any MPI-parallel operations.
+   * Taken from the MatrixFree / triangulation context.
+   */
+  const MPI_Comm mpi_communicator;
+
+  /**
+   * Rank of the current MPI process in mpi_communicator.
+   */
   const unsigned int this_mpi_process;
+
+  /**
+   * Number of MPI processes in mpi_communicator.
+   */
   const unsigned int n_mpi_process;
 
+  /**
+   * Mesh level (multigrid level) for which patches are generated/stored.
+   * Patches only refer to cells on this level.
+   */
   const unsigned int level;
+
+  /**
+   * Number of components in the FE system handled by the MatrixFree object.
+   * Used when preparing partitioners, communication channels and per-component
+   * data structures.
+   */
   const unsigned int n_components;
 
 
-
+  /**
+   * Build a map from global vertex index to the set of CellIndex objects that
+   * touch that vertex.
+   *
+   * Generates patches by mapping vertices to their associated cells.
+   * This function takes into account the function provided in `additional_data`
+   * to include/exclude certain vertices from forming patches.
+   *
+   * @return A map from global vertex indices to sets of CellIndex objects.
+   */
   std::map<types::global_vertex_index, std::set<CellIndex>>
-  generate_patches();
+  generate_patches() const;
 
 
+  // Append a patch (set of CellIndex) for the given global vertex to the
+  // internal storage. The function decides whether the supplied patch is
+  // a regular (fixed-size) patch or a general (variable-size) patch and
+  // stores it in the appropriate container. It also updates any
+  // associated metadata (for example whether the patch contains ghost
+  // cells).
   void
   push_back_patch(const std::set<CellIndex>        &patch,
                   const types::global_vertex_index &vertex_index);
 
 
+  /**
+   * Collects the unique global DoF indices associated with all cells in
+   * the given patch for a specific component.
+   *
+   * For each CellIndex in @p patch_cells this routine converts the index to
+   * a CellIterator (via index2cell()), queries the DoF indices belonging to
+   * that cell for the requested @p component, and inserts them into a
+   * std::set to guarantee uniqueness.
+   *
+   * @param patch_cells A set of CellIndex values identifying the cells that
+   *        belong to the patch.
+   * @param component   The component index whose DoFs should be collected.
+   * @return A std::set<types::global_dof_index> containing each global DoF
+   *         index exactly once. The result is suitable for communication,
+   *         conflict detection, or building local-to-global maps for the
+   *         patch.
+   */
   inline std::set<types::global_dof_index>
   collect_patch_dof_indices(const std::set<CellIndex> &patch_cells,
                             const unsigned int        &component) const;
@@ -777,22 +848,35 @@ private:
   colorize_patches(unsigned int parallel_cat);
 
 
-  // patches[parallel cat][patch_index]
+  /**
+   * Regular computation patches grouped by task category.
+   * Array length = TaskInfoType::n_categories; each element is a vector of
+   * RegularPatch. patches[parallel cat][patch_index]
+   */
   std::array<std::vector<RegularPatch>, TaskInfoType::n_categories>
-
     regular_patches;
+
+  // to be moved into vertex patch struct
   std::array<std::vector<PatchCategory>, TaskInfoType::n_categories>
     regular_patch_categories;
+
+  // Non-regular (general) patches grouped by task category.
   std::array<std::vector<GeneralPatch>, TaskInfoType::n_categories>
     other_patches;
 
-
-
+  // Partitioner per FE component for correct ghost ranges.
   std::vector<std::shared_ptr<const Utilities::MPI::Partitioner>> partitioners;
-  std::vector<unsigned int>         process_colors;
+
+
+  std::vector<unsigned int> process_colors;
+
+  // Mutable task info objects (one per component) to manage communication.
   mutable std::vector<TaskInfoType> task_infos;
 
 
+  /**
+   * Auxiliary configuration and runtime flags for patch-based storage.
+   */
   AdditionalData additional_data;
 
   bool is_initialized;

@@ -314,6 +314,9 @@ template <class MFType>
 void
 PatchStorage<MFType>::initialize(const AdditionalData &data)
 {
+  // --------------------------------------------------------------------------
+  // 1. Store additional data and generate initial patches
+  // --------------------------------------------------------------------------
   this->additional_data = data;
 
   Assert(static_cast<unsigned int>(level) < triangulation.n_global_levels(),
@@ -322,6 +325,11 @@ PatchStorage<MFType>::initialize(const AdditionalData &data)
   std::map<types::global_vertex_index, std::set<CellIndex>> vertex_to_cell_map =
     generate_patches();
 
+  // --------------------------------------------------------------------------
+  // 2. Determine patch ownership and filter patches
+  // A patch is owned by the process with the lowest rank that owns a cell in
+  // the patch. Patches not owned by the current process are cleared.
+  // --------------------------------------------------------------------------
   {
     unsigned int n_patches = 0;
     for (auto &kv : vertex_to_cell_map)
@@ -356,6 +364,10 @@ PatchStorage<MFType>::initialize(const AdditionalData &data)
     Assert(n_patches <= triangulation.n_vertices(), ExcInternalError());
   }
 
+  // --------------------------------------------------------------------------
+  // 3. Setup DoF handlers, MPI partitioners, and MPI task information for each
+  // component
+  // --------------------------------------------------------------------------
   for (unsigned int component = 0; component < n_components; ++component)
     {
       const auto &dof_handler = matrix_free->get_dof_handler(component);
@@ -389,6 +401,9 @@ PatchStorage<MFType>::initialize(const AdditionalData &data)
                                        true);
     }
 
+  // --------------------------------------------------------------------------
+  // 4. Create and store patch objects
+  // --------------------------------------------------------------------------
   for (auto &kv : vertex_to_cell_map)
     {
       std::set<CellIndex>              &patch        = kv.second;
@@ -401,12 +416,26 @@ PatchStorage<MFType>::initialize(const AdditionalData &data)
       push_back_patch(patch, vertex_index);
     }
 
-  for (unsigned int i = 0; i < TaskInfoType::n_categories; ++i)
-    std::sort(regular_patches[i].begin(),
-              regular_patches[i].end(),
-              [&](const auto a, const auto b) {
-                return a.get_cells() < b.get_cells();
-              });
+  // --------------------------------------------------------------------------
+  // 5. Create loop structures
+  // --------------------------------------------------------------------------
+  if (additional_data.tasks_parallel_scheme == AdditionalData::none)
+    {
+      // Order patches for better cache efficiency
+      for (unsigned int i = 0; i < TaskInfoType::n_categories; ++i)
+        std::sort(regular_patches[i].begin(),
+                  regular_patches[i].end(),
+                  [&](const auto a, const auto b) {
+                    return a.get_cells() < b.get_cells();
+                  });
+    }
+  else if (additional_data.tasks_parallel_scheme == AdditionalData::by_color)
+    {
+      for (unsigned int parallel_cat = 0;
+           parallel_cat < TaskInfoType::n_categories;
+           ++parallel_cat)
+        colorize_patches(parallel_cat);
+    }
 
   is_initialized = true;
 }
@@ -415,7 +444,7 @@ PatchStorage<MFType>::initialize(const AdditionalData &data)
 template <class MFType>
 std::map<types::global_vertex_index,
          std::set<typename PatchStorage<MFType>::CellIndex>>
-PatchStorage<MFType>::generate_patches()
+PatchStorage<MFType>::generate_patches() const
 {
   std::map<types::global_vertex_index, std::set<CellIndex>> vertex_to_cell_map;
 
@@ -429,7 +458,8 @@ PatchStorage<MFType>::generate_patches()
         const auto &cell = matrix_free->get_cell_iterator(i, j);
 
         for (const auto v : cell->vertex_indices())
-          vertex_to_cell_map[cell->vertex_index(v)].insert(batch2index(i, j));
+          if (additional_data.include_vertex(cell->vertex_index(v)))
+            vertex_to_cell_map[cell->vertex_index(v)].insert(batch2index(i, j));
       }
 
   return vertex_to_cell_map;
@@ -804,22 +834,18 @@ PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
   // maps an iterator to a vector of indices that indicate conflicts.
   auto get_conflict_indices =
     [&](const typename std::vector<RegularPatch>::const_iterator &patch_it)
-    -> std::vector<types::global_dof_index> {
+    -> auto {
     const RegularPatch &patch        = *patch_it;
     const auto          cells_vector = patch.get_cells_vector();
-
-    std::vector<types::global_dof_index> conflict_indices;
-    conflict_indices.reserve(cells_vector.size());
-    for (const auto &cell_idx : cells_vector)
-      conflict_indices.push_back(
-        static_cast<types::global_dof_index>(cell_idx));
-    return conflict_indices;
+    return cells_vector;
   };
 
   // Perform graph coloring on the patches of the selected category.
   auto coloring = GraphColoring::make_graph_coloring(patch_cat.cbegin(),
                                                      patch_cat.cend(),
                                                      get_conflict_indices);
+  // coloring is a vector of vectors of iterators to patches, where each
+  // outer vector index corresponds to a color.
 
   // Convert coloring result to a vector of colors per patch in this category
   std::vector<unsigned int> patch_colors(n_patches_total);
