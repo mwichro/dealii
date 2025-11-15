@@ -15,6 +15,7 @@
 
 
 #include <deal.II/matrix_free/patch_storage.h>
+#include <fstream>
 
 DEAL_II_NAMESPACE_OPEN
 

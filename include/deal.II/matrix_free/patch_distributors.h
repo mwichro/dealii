@@ -267,7 +267,7 @@ namespace PatchDistributors
      * This corresponds to the size of the `patch_storage` expected by the
      * `distribute_patch_to_local` and `gather_local_to_patch` methods.
      */
-    unsigned int
+    constexpr unsigned int
     n_patch_dofs() const
     {
       return n_patch_dofs_static;

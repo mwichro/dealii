@@ -272,6 +272,49 @@ public:
   distribute_patch_to_local(const ArrayView<const NumberType> &patch_vector,
                             const bool                         copy_duplicates);
 
+
+  /**
+   * @brief Distributes values from a patch vector to local cell DoFs,
+   * replicating values for shared DoFs (scatter operation).
+   *
+   * This function takes a vector representing the DoF values for the entire
+   * patch and distributes them into the internal cell-based storage. For
+   * degrees of freedom that are shared by multiple cells within the patch,
+   * the value from the patch vector is copied to all corresponding local DoF
+   * slots. This is typically used to set up local data for evaluation.
+   *
+   * The Distributor handles the mapping.
+   *
+   * @tparam NumberType The data type of the values in the patch vector.
+   * @param patch_vector An ArrayView containing the patch DoF values. Its
+   *   size must match `n_patch_dofs()`.
+   */
+  template <typename NumberType>
+  void
+  scatter_patch_to_local(const ArrayView<const NumberType> &patch_vector);
+
+
+  /**
+   * @brief Distributes values from a patch vector to local cell DoFs,
+   * masking out shared DoFs.
+   *
+   * This function takes a vector representing the DoF values for the entire
+   * patch and distributes them into the internal cell-based storage. For values
+   * that are shared by multiple cells within the patch, only the first cell
+   * receives the value, while subsequent occurrences are set to zero.
+   * This is typically used to prepare local data for scattering to global
+   * vectors.
+   *
+   * The Distributor handles the mapping.
+   *
+   * @tparam NumberType The data type of the values in the patch vector.
+   * @param patch_vector An ArrayView containing the patch DoF values. Its
+   *   size must match `n_patch_dofs()`.
+   */
+  template <typename NumberType>
+  void
+  masked_copy_patch_to_local(const ArrayView<const NumberType> &patch_vector);
+
   /**
    * @brief Gathers values from the local cell DoF storage into a patch
    * vector.
@@ -291,6 +334,50 @@ public:
   void
   gather_local_to_patch(const ArrayView<NumberType> &patch_vector,
                         const bool                   sum_overlapping) const;
+
+
+  /**
+   * @brief Gathers values from local cell DoFs into a patch vector,
+   * summing contributions for shared DoFs.
+   *
+   * This function collects the DoF values from the internal cell-based
+   * storage and assembles them into a vector representing the DoFs for the
+   * entire patch. For degrees of freedom that are shared by multiple cells
+   * within the patch, the contributions from all relevant cells are summed
+   * into the corresponding entry in the patch vector. This is typically used to
+   * collect cell-local contributions after evaluation.
+   *
+   * The Distributor handles the mapping.
+   *
+   * @tparam NumberType The data type of the values in the patch vector.
+   * @param patch_vector An ArrayView where the gathered patch DoF values will
+   *   be stored. Its size must match `n_patch_dofs()`.
+   */
+  template <typename NumberType>
+  void
+  collect_local_to_patch(const ArrayView<NumberType> &patch_vector) const;
+
+  /**
+   * @brief Copies values from local cell DoFs into a patch vector,
+   * taking only the first occurrence for shared DoFs.
+   *
+   * This function collects the DoF values from the internal cell-based
+   * storage and assembles them into a vector representing the DoFs for the
+   * entire patch. For degrees of freedom that are shared by multiple cells
+   * within the patch, only the value from the first cell is taken, while
+   * subsequent occurrences are ignored. This is typically used to assemble
+   * patch-local rhs or solution vectors.
+   *
+   * The Distributor handles the mapping.
+   *
+   * @tparam NumberType The data type of the values in the patch vector.
+   * @param patch_vector An ArrayView where the gathered patch DoF values will
+   *   be stored. Its size must match `n_patch_dofs()`.
+   */
+  template <typename NumberType>
+  void
+  copy_local_to_patch(const ArrayView<NumberType> &patch_vector) const;
+
 
   /**
    * @brief Reads DoF values from a global vector into the local cell storage
@@ -659,6 +746,32 @@ FEPatchEvaluation<FEEval, Distributor, vectorization>::
   distributor.loop(regular_operation, overlap_operation, skipped_operation);
 }
 
+
+
+template <typename FEEval,
+          typename Distributor,
+          VectorizationType vectorization>
+template <typename NumberType>
+inline void
+FEPatchEvaluation<FEEval, Distributor, vectorization>::scatter_patch_to_local(
+  const ArrayView<const NumberType> &patch_vector)
+{
+  distribute_patch_to_local(patch_vector, true);
+}
+
+template <typename FEEval,
+          typename Distributor,
+          VectorizationType vectorization>
+template <typename NumberType>
+inline void
+FEPatchEvaluation<FEEval, Distributor, vectorization>::
+  masked_copy_patch_to_local(const ArrayView<const NumberType> &patch_vector)
+{
+  distribute_patch_to_local(patch_vector, false);
+}
+
+
+
 template <typename FEEval,
           typename Distributor,
           VectorizationType vectorization>
@@ -688,6 +801,29 @@ FEPatchEvaluation<FEEval, Distributor, vectorization>::gather_local_to_patch(
 
   distributor.loop(regular_operation, overlap_operation, [](const auto &...) {
   });
+}
+
+
+template <typename FEEval,
+          typename Distributor,
+          VectorizationType vectorization>
+template <typename NumberType>
+inline void
+FEPatchEvaluation<FEEval, Distributor, vectorization>::collect_local_to_patch(
+  const ArrayView<NumberType> &patch_vector) const
+{
+  gather_local_to_patch(patch_vector, true);
+}
+
+template <typename FEEval,
+          typename Distributor,
+          VectorizationType vectorization>
+template <typename NumberType>
+inline void
+FEPatchEvaluation<FEEval, Distributor, vectorization>::copy_local_to_patch(
+  const ArrayView<NumberType> &patch_vector) const
+{
+  gather_local_to_patch(patch_vector, false);
 }
 
 template <typename FEEval,
