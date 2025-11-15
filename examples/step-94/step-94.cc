@@ -106,7 +106,7 @@ namespace Operators
      * Clears internal data structures, including the diagonal entries and the
      * base class state.
      */
-    void clear() override;
+    virtual void clear() override;
 
     /**
      * @brief Compute the diagonal entries of the operator.

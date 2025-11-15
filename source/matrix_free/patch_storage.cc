@@ -15,6 +15,7 @@
 
 
 #include <deal.II/matrix_free/patch_storage.h>
+
 #include <fstream>
 
 DEAL_II_NAMESPACE_OPEN
@@ -205,6 +206,7 @@ RegularVertexPatch<dim>::RegularVertexPatch(
       internal::reorder(ordered_patch_cells, {3, 2, 1, 0});
 
       std::vector<CellIndex> ordered_patch;
+      ordered_patch.reserve(ordered_patch_cells.size());
       for (auto &cell : ordered_patch_cells)
         ordered_patch.push_back(iterator2index.at(cell));
 
@@ -322,11 +324,9 @@ PatchStorage<MFType>::initialize(const AdditionalData &data)
 
   {
     unsigned int n_patches = 0;
-    for (auto iterator = vertex_to_cell_map.begin();
-         iterator != vertex_to_cell_map.end();
-         ++iterator)
+    for (auto &kv : vertex_to_cell_map)
       {
-        std::set<CellIndex> &patch = iterator->second;
+        std::set<CellIndex> &patch = kv.second;
 
         std::set<CellIterator> patch_cells;
         for (const CellIndex &cells_indices : patch)
@@ -389,12 +389,10 @@ PatchStorage<MFType>::initialize(const AdditionalData &data)
                                        true);
     }
 
-  for (auto iterator = vertex_to_cell_map.begin();
-       iterator != vertex_to_cell_map.end();
-       ++iterator)
+  for (auto &kv : vertex_to_cell_map)
     {
-      std::set<CellIndex>              &patch        = iterator->second;
-      const types::global_vertex_index &vertex_index = iterator->first;
+      std::set<CellIndex>              &patch        = kv.second;
+      const types::global_vertex_index &vertex_index = kv.first;
       const unsigned int                n_cells      = patch.size();
 
       if (n_cells == 0)
