@@ -41,11 +41,9 @@
 #include <deal.II/lac/tensor_product_matrix.h>
 
 #include <deal.II/matrix_free/fe_evaluation.h>
+#include <deal.II/matrix_free/fe_patch_evaluation.h>
 #include <deal.II/matrix_free/matrix_free.h>
 #include <deal.II/matrix_free/operators.h>
-#include <deal.II/matrix_free/fe_patch_evaluation.h>
-
-
 
 #include <deal.II/multigrid/mg_coarse.h>
 #include <deal.II/multigrid/mg_matrix.h>
@@ -59,9 +57,9 @@
 
 // This includes the utilities for the efficient implementation of
 // matrix-free patch-smoothing methods.
-#include <deal.II/matrix_free/patch_storage.h>
 #include <deal.II/matrix_free/patch_distributors.h>
 #include <deal.II/matrix_free/patch_smoother_base.h>
+#include <deal.II/matrix_free/patch_storage.h>
 
 // Assembly of 1D matrices needed for local inverse
 #include <deal.II/numerics/tensor_product_matrix_creator.h>
@@ -512,13 +510,12 @@ namespace Operators
         // Read the relevant global RHS values ('src') into the FEEvaluation
         // objects associated with the cells of the current patch.
         patch_eval.read_dof_values(src);
-        // Gather the values from the individual cells' FEEvaluation objects
+        // Copy the values from the individual cells' FEEvaluation objects
         // into the contiguous 'local_rhs' vector for the patch.
-        // 'false' indicates this is a simple gather, we are not accumulating
-        // results In other words, values that are share between cell will be
-        // imported once,only for the cell with lowest index (cells are ordered
+        // Values that are shared between cells will be
+        // imported once, only for the cell with lowest index (cells are ordered
         // lexicographically).
-        patch_eval.gather_local_to_patch(ArrayView<double>(local_rhs), false);
+        patch_eval.copy_local_to_patch(ArrayView<double>(local_rhs));
 
         // --- Step 2: Apply the local operator A_patch * u_patch ---
         // Read the relevant global solution values ('dst') into the
@@ -541,12 +538,9 @@ namespace Operators
             // are now stored within each 'phi' object.
           }
 
-        // Gather the results of the local operator application from the cells
+        // Collect the results of the local operator application from the cells
         // into the 'local_residual' vector for the patch.
-        // 'true' indicates accumulation is needed if multiple cell DoFs map
-        // to the same patch DoF (though typically not the case here).
-        patch_eval.gather_local_to_patch(ArrayView<double>(local_residual),
-                                         true);
+        patch_eval.collect_local_to_patch(ArrayView<double>(local_residual));
 
         // --- Step 3: Compute the actual residual on the patch ---
         // residual = rhs - A*solution (Note: local_residual currently holds
@@ -574,15 +568,14 @@ namespace Operators
         // once, we need zero out the "duplicates".
         //
         // Distribute the patch correction vector back to the individual cells'
-        // FEEvaluation objects. 'false' indicates that DoFs shared between
+        // FEEvaluation objects. DoFs shared between
         // multiple cell are only written the first owning cell, not
         // accumulated. The values of shared DoFs in subsequent cells will be
-        // set to 0.
-        patch_eval.distribute_patch_to_local(
-          ArrayView<const number>(local_correction), false);
+        // set to 0. This function prepares the data for the final distribution
+        // to the global solution vector.
+        patch_eval.masked_copy_patch_to_local(
+          ArrayView<const number>(local_correction));
 
-        // Add the corrections stored in the local FEEvaluation objects
-        // to the global solution vector 'dst'.
         patch_eval.distribute_local_to_global(dst);
       }
   }

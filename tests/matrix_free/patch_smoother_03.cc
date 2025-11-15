@@ -159,14 +159,12 @@ test()
     patch_eval.n_patch_dofs()); // Second vector for later use if needed
 
   // Gather results from FEEvaluation objects into the first patch vector
-  patch_eval.gather_local_to_patch(ArrayView<double>(patch_result_local),
-                                   true); // Accumulate results
+  patch_eval.collect_local_to_patch(ArrayView<double>(patch_result_local));
 
   // Distribute results from cell evaluations to the global vector dst_patch
 
   patch_eval.read_dof_values(dst_mf);
-  patch_eval.gather_local_to_patch(ArrayView<double>(patch_result_global),
-                                   false);
+  patch_eval.copy_local_to_patch(ArrayView<double>(patch_result_global));
 
   // 9. Compare patch_result_local (accumulated) and patch_result_global
   // (non-accumulated)

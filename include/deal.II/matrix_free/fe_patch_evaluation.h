@@ -251,29 +251,6 @@ public:
   get_current_patch_index() const;
 
   /**
-   * @brief Distributes values from a patch vector to the local cell DoF
-   * storage.
-   *
-   * This function takes a vector representing the DoF values for the entire
-   * patch and distributes them into the internal cell-based storage managed
-   * by the underlying FEEvaluation object(s). The Distributor handles the
-   * mapping.
-   *
-   * @tparam NumberType The data type of the values in the patch vector.
-   * @param patch_vector An ArrayView containing the patch DoF values. Its
-   *   size must match `n_patch_dofs()`.
-   * @param copy_duplicates A flag indicating how to handle DoFs that
-   *   are shared by multiple cells within the patch. If true, the value is
-   *   copied to all corresponding local DoF slots. False implies writing
-   *   once.
-   */
-  template <typename NumberType>
-  void
-  distribute_patch_to_local(const ArrayView<const NumberType> &patch_vector,
-                            const bool                         copy_duplicates);
-
-
-  /**
    * @brief Distributes values from a patch vector to local cell DoFs,
    * replicating values for shared DoFs (scatter operation).
    *
@@ -292,7 +269,6 @@ public:
   template <typename NumberType>
   void
   scatter_patch_to_local(const ArrayView<const NumberType> &patch_vector);
-
 
   /**
    * @brief Distributes values from a patch vector to local cell DoFs,
@@ -314,27 +290,6 @@ public:
   template <typename NumberType>
   void
   masked_copy_patch_to_local(const ArrayView<const NumberType> &patch_vector);
-
-  /**
-   * @brief Gathers values from the local cell DoF storage into a patch
-   * vector.
-   *
-   * This function collects the DoF values from the internal cell-based
-   * storage and assembles them into a vector representing the DoFs for the
-   * entire patch. The Distributor handles the mapping.
-   *
-   * @tparam NumberType The data type of the values in the patch vector.
-   * @param patch_vector An ArrayView where the gathered patch DoF values will
-   *   be stored. Its size must match `n_patch_dofs()`.
-   * @param sum_overlapping A flag indicating how to handle DoFs
-   *   shared by multiple cells. If true, contributions from different cells
-   *   to the same patch DoF are summed.
-   */
-  template <typename NumberType>
-  void
-  gather_local_to_patch(const ArrayView<NumberType> &patch_vector,
-                        const bool                   sum_overlapping) const;
-
 
   /**
    * @brief Gathers values from local cell DoFs into a patch vector,
@@ -455,6 +410,50 @@ public:
   std::array<FEEvaluationType, n_evaluators> fe_evaluations;
 
 private:
+  /**
+   * @brief Distributes values from a patch vector to the local cell DoF
+   * storage.
+   *
+   * This function takes a vector representing the DoF values for the entire
+   * patch and distributes them into the internal cell-based storage managed
+   * by the underlying FEEvaluation object(s). The Distributor handles the
+   * mapping.
+   *
+   * @tparam NumberType The data type of the values in the patch vector.
+   * @param patch_vector An ArrayView containing the patch DoF values. Its
+   *   size must match `n_patch_dofs()`.
+   * @param copy_duplicates A flag indicating how to handle DoFs that
+   *   are shared by multiple cells within the patch. If true, the value is
+   *   copied to all corresponding local DoF slots. False implies writing
+   *   once.
+   */
+  template <typename NumberType>
+  void
+  distribute_patch_to_local(const ArrayView<const NumberType> &patch_vector,
+                            const bool                         copy_duplicates);
+
+
+  /**
+   * @brief Gathers values from the local cell DoF storage into a patch
+   * vector.
+   *
+   * This function collects the DoF values from the internal cell-based
+   * storage and assembles them into a vector representing the DoFs for the
+   * entire patch. The Distributor handles the mapping.
+   *
+   * @tparam NumberType The data type of the values in the patch vector.
+   * @param patch_vector An ArrayView where the gathered patch DoF values will
+   *   be stored. Its size must match `n_patch_dofs()`.
+   * @param sum_overlapping A flag indicating how to handle DoFs
+   *   shared by multiple cells. If true, contributions from different cells
+   *   to the same patch DoF are summed.
+   */
+  template <typename NumberType>
+  void
+  gather_local_to_patch(const ArrayView<NumberType> &patch_vector,
+                        const bool                   sum_overlapping) const;
+
+
   std::array<CellDofsViewRaw, n_cells> cell_dofs_view_raw;
 
   const PatchStorageType &storage;
