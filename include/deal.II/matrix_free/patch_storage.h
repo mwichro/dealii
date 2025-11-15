@@ -833,7 +833,7 @@ private:
 
 
   /**
-   * Colorize patches using graph coloring to enable parallel processing.
+   * Colorize patches using graph coloring to enable thread parallel processing.
    *
    * This method builds a graph where each patch is a node, and edges connect
    * patches that have overlapping cells. Graph coloring is then performed
@@ -855,6 +855,22 @@ private:
    */
   std::array<std::vector<RegularPatch>, TaskInfoType::n_categories>
     regular_patches;
+
+  /**
+   * A range of thread-work expressed as [begin, end) over regular patch
+   * indices. This is used to run a thread-parallel loop inside each MPI
+   * parallel category.
+   */
+  using ThreadRange = std::pair<std::size_t, std::size_t>;
+
+  /**.
+   * Each element of the array corresponds to one parallel category and holds
+   * a vector of ThreadRange entries. Each ThreadRange indicates the range of
+   * patches to be processed by multiple threads within that category without
+   * conflicts.
+   */
+  std::array<std::vector<ThreadRange>, TaskInfoType::n_categories>
+    thread_ranges_per_category;
 
   // to be moved into vertex patch struct
   std::array<std::vector<PatchCategory>, TaskInfoType::n_categories>

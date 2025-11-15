@@ -847,6 +847,9 @@ PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
   // coloring is a vector of vectors of iterators to patches, where each
   // outer vector index corresponds to a color.
 
+  auto &thread_ranges = thread_ranges_per_category[parallel_cat];
+  thread_ranges.resize(coloring.size());
+
   // Convert coloring result to a vector of colors per patch in this category
   std::vector<unsigned int> patch_colors(n_patches_total);
   for (unsigned int color = 0; color < coloring.size(); ++color)
