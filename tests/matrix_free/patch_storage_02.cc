@@ -12,8 +12,10 @@
 //
 // ------------------------------------------------------------------------
 
-// check basic functionality of PatchStorage: initialization on a mesh with a
-// single patch
+// This test verifies that PatchStorage correctly constructs patches.
+// Check if for each coarse cell on test_level-1, there exists exactly one patch
+// on test_level that contains all its children in the correct (lexicographical)
+// order.
 
 #include <deal.II/base/function.h>
 #include <deal.II/base/quadrature_lib.h>
@@ -43,8 +45,10 @@ test()
   Triangulation<dim> triangulation(
     Triangulation<dim>::limit_level_difference_at_vertices);
 
+  const unsigned int test_level = 3;
+
   GridGenerator::hyper_cube(triangulation);
-  triangulation.refine_global(1); // Refine once
+  triangulation.refine_global(test_level); // Refine once
 
   // 2. Initialize FE, DoFHandler, Mapping
   const unsigned int fe_degree = 1;
@@ -65,9 +69,9 @@ test()
   // No boundary conditions or hanging nodes needed for this simple test yet
   constraints.close();
 
-  // 4. Initialize MatrixFree for level 1
+  // 4. Initialize MatrixFree for test_level
   typename MatrixFree<dim, double>::AdditionalData additional_data;
-  additional_data.mg_level          = 1; // Target level 1
+  additional_data.mg_level          = test_level; // Target level 1
   additional_data.store_ghost_cells = true;
 
   std::shared_ptr<MatrixFree<dim, double>> mf_level_storage =
@@ -78,45 +82,66 @@ test()
                            QGauss<1>(fe_degree + 1),
                            additional_data);
 
-  // 5. Build PatchStorage on level 1
+  // 5. Build PatchStorage on test_level
   PatchStorage<MatrixFree<dim, double>> patch_storage(mf_level_storage);
   patch_storage.initialize();
 
+  // 6. Check that all patches are constructed correctly.
 
-  // Checks: there should only one patch
-
-  Assert(patch_storage.n_patches() > 0, ExcInternalError());
-  deallog << "  Level 1 PatchStorage initialized with "
-          << patch_storage.n_patches() << " patches." << std::endl;
-
-
-  // with cell ordered lexicographically, that is the order of childred
-  auto       patch_cells = patch_storage.get_regular_patch(0).get_cells();
-  const auto parent_cell = triangulation.begin(0);
-  // Get the map from cell iterators (level 1) to MatrixFree indices
-
-  deallog << "  Checking children of first coarse cell (" << parent_cell->id()
-          << ") against first patch cells:" << std::endl;
-  // Iterate through the children of the parent cell
-  for (unsigned int child_idx = 0; child_idx < parent_cell->n_children();
-       ++child_idx)
+  for (const auto &coarse_cell :
+       triangulation.cell_iterators_on_level(test_level - 1))
     {
-      // Get the iterator for the child cell (which should be on level 1)
-      const auto child_cell = parent_cell->child(child_idx);
-      Assert(child_cell->level() == 1,
-             ExcInternalError("Child cell is not on level 1"));
-      Assert(child_cell->is_active(),
-             ExcInternalError(
-               "Child cell is not active")); // Cells on target level should be
-                                             // active
+      // Collect all descendant cells on the fine level (level 3) in
+      // lexicographical order via recursive traversal.
+      std::vector<typename Triangulation<dim>::level_cell_iterator>
+        descendant_cells;
+      descendant_cells.resize(coarse_cell->n_children());
 
-      auto mf_cell_iterator =
-        mf_level_storage->get_cell_iterator(patch_cells[child_idx] / n_lanes,
-                                            patch_cells[child_idx] % n_lanes);
-      AssertThrow(
-        mf_cell_iterator->index() == child_cell->index(),
-        ExcMessage(
-          "Cell index mismatch -- most likely patch construction went wrong."));
+      for (unsigned int c = 0; c < coarse_cell->n_children(); ++c)
+        descendant_cells[c] = coarse_cell->child(c);
+
+
+      const unsigned int n_patches              = patch_storage.n_patches();
+      unsigned int       n_found_matching_patch = 0;
+
+      for (unsigned int patch_idx = 0; patch_idx < n_patches; ++patch_idx)
+        {
+          const auto &patch = patch_storage.get_regular_patch(patch_idx);
+          const auto  patch_cells_ids = patch.get_cells();
+          std::vector<typename Triangulation<dim>::level_cell_iterator>
+            patch_cells(descendant_cells.size());
+          for (unsigned int i = 0; i < patch_cells.size(); ++i)
+            {
+              const auto &cell_index = patch_cells_ids[i];
+              patch_cells[i] =
+                mf_level_storage->get_cell_iterator(cell_index / n_lanes,
+                                                    cell_index % n_lanes);
+            }
+
+          if (patch_cells_ids.size() != descendant_cells.size())
+            continue;
+
+          bool match = true;
+          for (unsigned int i = 0; i < patch_cells.size(); ++i)
+            {
+              if (patch_cells[i] != descendant_cells[i])
+                {
+                  match = false;
+                  break;
+                }
+            }
+
+          if (match)
+            {
+              n_found_matching_patch++;
+            }
+        }
+
+      AssertThrow(n_found_matching_patch == 1,
+                  ExcMessage(
+                    "No matching patch found for coarse cell at level " +
+                    std::to_string(coarse_cell->level()) + ", index " +
+                    std::to_string(coarse_cell->index())));
     }
 }
 

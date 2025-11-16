@@ -810,7 +810,7 @@ PatchStorage<MFType>::output_centerpoints(
 
 
 template <class MFType>
-std::vector<unsigned int>
+void
 PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
 {
   Assert(is_initialized, ExcNotInitialized());
@@ -822,7 +822,7 @@ PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
   const unsigned int n_patches_total = patch_cat.size();
 
   if (n_patches_total == 0)
-    return std::vector<unsigned int>();
+    return;
 
   // Build a mapping from patch address to index for O(1) lookup later.
   std::map<const RegularPatch *, unsigned int> patch_to_index;
@@ -850,17 +850,23 @@ PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
   auto &thread_ranges = thread_ranges_per_category[parallel_cat];
   thread_ranges.resize(coloring.size());
 
-  // Convert coloring result to a vector of colors per patch in this category
-  std::vector<unsigned int> patch_colors(n_patches_total);
-  for (unsigned int color = 0; color < coloring.size(); ++color)
-    for (const auto &patch_it : coloring[color])
-      {
-        const RegularPatch *patch_ptr   = &*patch_it;
-        const unsigned int  patch_index = patch_to_index.at(patch_ptr);
-        patch_colors[patch_index]       = color;
-      }
+  // Sort patches by colors and determine thread ranges.
+  std::vector<RegularPatch> sorted_patches;
+  sorted_patches.reserve(n_patches_total);
 
-  return patch_colors;
+  unsigned int current_pos = 0;
+  for (unsigned int color = 0; color < coloring.size(); ++color)
+    {
+      const unsigned int range_start = current_pos;
+      for (const auto &patch_it : coloring[color])
+        sorted_patches.push_back(*patch_it);
+
+      current_pos          = sorted_patches.size();
+      thread_ranges[color] = std::make_pair(range_start, current_pos);
+    }
+
+  // Replace the original patch vector with the sorted one.
+  regular_patches[parallel_cat] = std::move(sorted_patches);
 }
 
 

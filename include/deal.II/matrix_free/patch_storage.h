@@ -842,9 +842,8 @@ private:
    *
    * @param parallel_cat The parallel category for which to colorize patches.
    *                     Currently unused but kept for future extension.
-   * @return A vector of colors, one for each patch in the given category.
    */
-  std::vector<unsigned int>
+  void
   colorize_patches(unsigned int parallel_cat);
 
 
