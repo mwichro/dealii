@@ -18,6 +18,8 @@
 
 #include <deal.II/base/config.h>
 
+#include <deal.II/base/utilities.h>
+
 #include <array>
 #include <utility> // Required for std::pair
 #include <vector>

@@ -289,13 +289,13 @@ namespace Operators
      * @param dst The global solution vector (input/output).
      * @param src The global right-hand side vector (input).
      * @param patch_range The range of patch indices to process.
-     * @param do_forward Flag indicating the direction of iteration (forward or backward sweep).
+
      */
-    void local_apply(const PatchStorageType                      &patch_storage,
-                     VectorType                                  &dst,
-                     const VectorType                            &src,
-                     const typename PatchStorageType::PatchRange &patch_range,
-                     const bool &do_forward) const override;
+    void local_apply(
+      const PatchStorageType                      &patch_storage,
+      VectorType                                  &dst,
+      const VectorType                            &src,
+      const typename PatchStorageType::PatchRange &patch_range) const override;
 
     /**
      *
@@ -444,8 +444,7 @@ namespace Operators
    * Uses  FEPatchEvaluation to manage data transfer between
    * global vectors and local patch vectors. Iterates through the specified
    * patch range, computes the local residual, applies the patch inverse, and
-   * updates the global solution vector. At the  moment, only do_forward==true
-   * is supported by PatchStorage that manages the loop.
+   * updates the global solution vector.
    */
   template <int dim, int fe_degree, typename number>
   void LaplacePatchSmoother<dim, fe_degree, number>::local_apply(
@@ -453,8 +452,8 @@ namespace Operators
     VectorType             &dst, // Global solution vector (input/output)
     const VectorType       &src, // Global right-hand side vector (input)
     const typename PatchStorageType::PatchRange
-               &patch_range,      // Range of patches to process
-    const bool &do_forward) const // Direction of iteration
+      &patch_range // Range of patches to process
+  ) const
   {
     // Type alias for the FEPatchEvaluation, which handles operations across
     // the cells within a patch, including data gathering and scattering.
@@ -485,15 +484,11 @@ namespace Operators
     PatchEval patch_eval(patch_storage,
                          FEEval(*patch_storage.get_matrix_free()));
 
-    // Determine the start, end, and step direction for the patch loop based
-    // on whether it's a forward or backward sweep.
-    const auto begin = do_forward ? patch_range.first : patch_range.second - 1;
-    const auto end   = do_forward ? patch_range.second : patch_range.first - 1;
-    const auto step  = do_forward ? 1 : -1;
-
 
     // Iterate over the assigned range of patches.
-    for (auto patch_index = begin; patch_index != end; patch_index += step)
+    for (auto patch_index = patch_range.first;
+         patch_index != patch_range.second;
+         ++patch_index)
       {
         // Reinitialize the patch evaluation helper for the current patch index.
         // This sets up internal structures for the specific cells in this

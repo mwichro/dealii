@@ -76,15 +76,13 @@ public:
    * @param dst The destination vector where the result is accumulated.
    * @param src The source vector providing the input data.
    * @param patch_range The range of patches to process in this call.
-   * @param do_forward Flag indicating the direction of the operation (true for
-   * forward/step, false for backward/Tstep).
    */
   virtual void
-  local_apply(const PatchStorageType                      &patch_storage,
-              VectorType                                  &dst,
-              const VectorType                            &src,
-              const typename PatchStorageType::PatchRange &patch_range,
-              const bool &do_forward) const = 0;
+  local_apply(
+    const PatchStorageType                      &patch_storage,
+    VectorType                                  &dst,
+    const VectorType                            &src,
+    const typename PatchStorageType::PatchRange &patch_range) const = 0;
 
 
   /**
@@ -217,7 +215,7 @@ PatchSmootherBase<dim, number>::step(VectorType       &dst,
           VectorType                                  &dst,
           const VectorType                            &src,
           const typename PatchStorageType::PatchRange &patch_range) {
-        local_apply(patch_storage, dst, src, patch_range, true);
+        local_apply(patch_storage, dst, src, patch_range);
       };
 
   patch_storage->patch_loop(patch_worker, dst, src, true);
@@ -247,7 +245,7 @@ PatchSmootherBase<dim, number>::Tstep(VectorType       &dst,
           VectorType                                  &dst,
           const VectorType                            &src,
           const typename PatchStorageType::PatchRange &patch_range) {
-        local_apply(patch_storage, dst, src, patch_range, false);
+        local_apply(patch_storage, dst, src, patch_range);
       };
 
   patch_storage->patch_loop(patch_worker, dst, src, false);
