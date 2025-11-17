@@ -272,7 +272,6 @@ namespace Operators
      * patch loop). For each patch in the given range, it performs the
      * following steps:
      * 1. Gather the relevant portion of the global right-hand side vector
-
      * `src` to a local patch vector `local_rhs`.
      * 2. Apply the global operator (implicitly via FEEvaluation) to the
      *    current global solution estimate `dst` and gathers the result to a
@@ -289,13 +288,14 @@ namespace Operators
      * @param dst The global solution vector (input/output).
      * @param src The global right-hand side vector (input).
      * @param patch_range The range of patch indices to process.
-
+     * @param thread_id_dummy ID of the thread executing this function. This
+     * can be used to index into thread-local  storage.
      */
-    void local_apply(
-      const PatchStorageType                      &patch_storage,
-      VectorType                                  &dst,
-      const VectorType                            &src,
-      const typename PatchStorageType::PatchRange &patch_range) const override;
+    void local_apply(const PatchStorageType                      &patch_storage,
+                     VectorType                                  &dst,
+                     const VectorType                            &src,
+                     const typename PatchStorageType::PatchRange &patch_range,
+                     const unsigned int &thread_id_dummy) const override;
 
     /**
      *
@@ -452,9 +452,11 @@ namespace Operators
     VectorType             &dst, // Global solution vector (input/output)
     const VectorType       &src, // Global right-hand side vector (input)
     const typename PatchStorageType::PatchRange
-      &patch_range // Range of patches to process
-  ) const
+                       &patch_range, // Range of patches to process
+    const unsigned int &thread_id_dummy) const
   {
+    (void)thread_id_dummy; // to suppress unused variable warning
+
     // Type alias for the FEPatchEvaluation, which handles operations across
     // the cells within a patch, including data gathering and scattering.
     // Moving values between patches vector and individual cell vectors, handled

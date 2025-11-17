@@ -78,11 +78,11 @@ public:
    * @param patch_range The range of patches to process in this call.
    */
   virtual void
-  local_apply(
-    const PatchStorageType                      &patch_storage,
-    VectorType                                  &dst,
-    const VectorType                            &src,
-    const typename PatchStorageType::PatchRange &patch_range) const = 0;
+  local_apply(const PatchStorageType                      &patch_storage,
+              VectorType                                  &dst,
+              const VectorType                            &src,
+              const typename PatchStorageType::PatchRange &patch_range,
+              const unsigned int                          &thread_id) const = 0;
 
 
   /**
@@ -206,19 +206,17 @@ void
 PatchSmootherBase<dim, number>::step(VectorType       &dst,
                                      const VectorType &src) const
 {
-  const std::function<void(const PatchStorageType &,
-                           VectorType &,
-                           const VectorType &,
-                           const typename PatchStorageType::PatchRange &)>
-    patch_worker =
-      [&](const PatchStorageType                      &patch_storage,
-          VectorType                                  &dst,
-          const VectorType                            &src,
-          const typename PatchStorageType::PatchRange &patch_range) {
-        local_apply(patch_storage, dst, src, patch_range);
-      };
-
-  patch_storage->patch_loop(patch_worker, dst, src, true);
+  patch_storage->patch_loop(
+    [&](const PatchStorageType                      &patch_storage,
+        VectorType                                  &dst,
+        const VectorType                            &src,
+        const typename PatchStorageType::PatchRange &patch_range,
+        const unsigned int                          &thread_id) {
+      local_apply(patch_storage, dst, src, patch_range, thread_id);
+    },
+    dst,
+    src,
+    true);
 }
 
 template <int dim, typename number>
@@ -236,19 +234,17 @@ void
 PatchSmootherBase<dim, number>::Tstep(VectorType       &dst,
                                       const VectorType &src) const
 {
-  const std::function<void(const PatchStorageType &,
-                           VectorType &,
-                           const VectorType &,
-                           const typename PatchStorageType::PatchRange &)>
-    patch_worker =
-      [&](const PatchStorageType                      &patch_storage,
-          VectorType                                  &dst,
-          const VectorType                            &src,
-          const typename PatchStorageType::PatchRange &patch_range) {
-        local_apply(patch_storage, dst, src, patch_range);
-      };
-
-  patch_storage->patch_loop(patch_worker, dst, src, false);
+  patch_storage->patch_loop(
+    [&](const PatchStorageType                      &patch_storage,
+        VectorType                                  &dst,
+        const VectorType                            &src,
+        const typename PatchStorageType::PatchRange &patch_range,
+        const unsigned int                          &thread_id) {
+      local_apply(patch_storage, dst, src, patch_range, thread_id);
+    },
+    dst,
+    src,
+    false);
 }
 
 template <int dim, typename number>

@@ -588,32 +588,47 @@ public:
    *  Executes a given function (`patch_worker`) over ranges of patches,
    * handling parallel communication.
    *
-   * This function iterates through the parallel categories determined by the
-   * `TaskInfoType`. For each category, it performs necessary communication
-   * (e.g., updating ghost values) and then calls the `patch_worker` with the
-   * range of regular patches belonging to that category.
+   * This is the main loop for applying a computational kernel, such as a
+   * smoother, to all patches. It simplifies parallel execution by
+   * automatically handling the complexities of data dependencies and MPI
+   * communication.
+   *
+   * The method works by processing patches in groups (often called "colors").
+   * Patches within the same group can be computed in parallel without conflict.
+   * Between each group, this function manages the necessary MPI communication
+   * to ensure that ghost data in the `solution` vector is up-to-date before
+   * the next group is processed.
+   *
+   * The user's primary responsibility is to provide the `patch_worker`, a
+   * function or lambda that defines the operation to be performed on a range
+   * of patches.
    *
    * @tparam OutVector The type of the output/solution vector.
    * @tparam InVector The type of the input/rhs vector.
+   * @tparam PatchWorker A callable object (e.g., a lambda) that implements
+   * the patch-wise operation. It receives the `PatchStorage` instance,
+   * solution and RHS vectors, a `PatchRange` indicating the subset of patches
+   * to process, and a thread ID. For example, const std::function<void(const
+   PatchStorage<MFType> &, OutVector &, const InVector &, const PatchRange &)>
    * @param patch_worker The function to execute for each patch range. It
    * takes the `PatchStorage` instance, output vector, input vector, and the
-   * `PatchRange` as arguments.
+   * `PatchRange` as arguments. Additially it receives the ID of the thread
+   * executing the function, which can be used to index into thread-local
+   * storage.
    * @param solution The output/solution vector. Its ghost values will be
    * updated during the loop.
    * @param rhs The input/rhs vector. Its ghost values must be up-to-date
    * before calling this function.
    * @param do_forward Flag indicating the direction of sweep (currently only
    * `true` is supported).
+   *
    */
-  template <class OutVector, class InVector>
+  template <class OutVector, class InVector, typename PatchWorker>
   void
-  patch_loop(const std::function<void(const PatchStorage<MFType> &,
-                                      OutVector &,
-                                      const InVector &,
-                                      const PatchRange &)> &patch_worker,
-             OutVector                                     &solution,
-             const InVector                                &rhs,
-             const bool &do_forward = true) const;
+  patch_loop(const PatchWorker &patch_worker,
+             OutVector         &solution,
+             const InVector    &rhs,
+             const bool        &do_forward = true) const;
 
 
   /**
@@ -953,16 +968,12 @@ PatchStorage<MFType>::adjust_ghost_range_if_necessary(
 
 
 template <class MFType>
-template <class OutVector, class InVector>
+template <class OutVector, class InVector, typename PatchWorker>
 inline void
-PatchStorage<MFType>::patch_loop(
-  const std::function<void(const PatchStorage<MFType> &,
-                           OutVector &,
-                           const InVector &,
-                           const PatchRange &)> &patch_worker,
-  OutVector                                     &solution,
-  const InVector                                &rhs,
-  const bool                                    &do_forward) const
+PatchStorage<MFType>::patch_loop(const PatchWorker &patch_worker,
+                                 OutVector         &solution,
+                                 const InVector    &rhs,
+                                 const bool        &do_forward) const
 {
   Assert(is_initialized, ExcNotInitialized());
   Assert(do_forward == true, ExcNotImplemented());
@@ -992,7 +1003,7 @@ PatchStorage<MFType>::patch_loop(
         {
           PatchRange patch_range(current_begin,
                                  current_begin + regular_patches[cat].size());
-          patch_worker(*this, solution, rhs, patch_range);
+          patch_worker(*this, solution, rhs, patch_range, 0 /*Fixme!*/);
 
           current_begin += regular_patches[cat].size();
         }
