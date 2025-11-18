@@ -37,6 +37,8 @@
 
 #include <deal.II/matrix_free/matrix_free.h>
 
+#include <type_traits>
+
 
 
 DEAL_II_NAMESPACE_OPEN
@@ -978,6 +980,19 @@ PatchStorage<MFType>::patch_loop(const PatchWorker &patch_worker,
   Assert(is_initialized, ExcNotInitialized());
   Assert(do_forward == true, ExcNotImplemented());
   (void)do_forward;
+
+  // Provide a clear error message if the PatchWorker signature is incorrect.
+  static_assert(
+    std::is_invocable_r_v<void,
+                          const PatchWorker &,
+                          const PatchStorage<MFType> &,
+                          OutVector &,
+                          const InVector &,
+                          PatchRange,
+                          unsigned int>,
+    "The provided PatchWorker must be a callable with a signature compatible "
+    "with void(const PatchStorage<MFType> &, OutVector &, const InVector &, "
+    "PatchRange, unsigned int).");
 
   adjust_ghost_range_if_necessary(0, rhs);
   adjust_ghost_range_if_necessary(0, solution);
