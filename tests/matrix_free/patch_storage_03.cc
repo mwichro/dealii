@@ -96,7 +96,7 @@ test()
   typename PatchStorage<MatrixFree<dim, double>>::AdditionalData
     with_threads_data;
   with_threads_data.tasks_parallel_scheme =
-    PatchStorage<MatrixFree<dim, double>>::AdditionalData::none;
+    PatchStorage<MatrixFree<dim, double>>::AdditionalData::by_color;
 
   PatchStorage<MatrixFree<dim, double>> patch_storage_with_threads(
     mf_level_storage);

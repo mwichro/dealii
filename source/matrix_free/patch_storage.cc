@@ -14,6 +14,8 @@
 
 
 
+#include <deal.II/base/multithread_info.h>
+
 #include <deal.II/matrix_free/patch_storage.h>
 
 #include <fstream>
@@ -423,11 +425,17 @@ PatchStorage<MFType>::initialize(const AdditionalData &data)
     {
       // Order patches for better cache efficiency
       for (unsigned int i = 0; i < TaskInfoType::n_categories; ++i)
-        std::sort(regular_patches[i].begin(),
-                  regular_patches[i].end(),
-                  [&](const auto a, const auto b) {
-                    return a.get_cells() < b.get_cells();
-                  });
+        {
+          std::sort(regular_patches[i].begin(),
+                    regular_patches[i].end(),
+                    [&](const auto a, const auto b) {
+                      return a.get_cells() < b.get_cells();
+                    });
+
+          thread_ranges_per_category[i].clear();
+          thread_ranges_per_category[i].emplace_back(0,
+                                                     regular_patches[i].size());
+        }
     }
   else if (additional_data.tasks_parallel_scheme == AdditionalData::by_color)
     {
@@ -595,6 +603,16 @@ PatchStorage<MFType>::n_patches() const
   for (const auto &patch_cat : regular_patches)
     n_patches += patch_cat.size();
   return n_patches;
+}
+
+template <class MFType>
+std::size_t
+PatchStorage<MFType>::n_threads() const
+{
+  if (additional_data.tasks_parallel_scheme == AdditionalData::none)
+    return 1;
+  else
+    return MultithreadInfo::n_threads();
 }
 
 
@@ -813,8 +831,6 @@ template <class MFType>
 void
 PatchStorage<MFType>::colorize_patches(unsigned int parallel_cat)
 {
-  Assert(is_initialized, ExcNotInitialized());
-
   // Work only on the requested parallel category
   AssertIndexRange(parallel_cat, regular_patches.size());
 

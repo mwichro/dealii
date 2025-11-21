@@ -37,7 +37,16 @@
 
 #include <deal.II/matrix_free/matrix_free.h>
 
+#include <cstddef>
 #include <type_traits>
+
+#ifdef DEAL_II_WITH_TBB
+// TBB headers are usually available via deal.II,
+// but explicit inclusion ensures future-proofing.
+#  include <tbb/blocked_range.h>
+#  include <tbb/parallel_for.h>
+#  include <tbb/task_arena.h>
+#endif
 
 
 
@@ -496,6 +505,7 @@ public:
     AdditionalData()
       : include_vertex([](const types::global_vertex_index &) { return true; })
       , tasks_parallel_scheme(none)
+      , minimum_grain_size(1)
     {}
 
     /**
@@ -513,6 +523,15 @@ public:
      * Default is 'none' (no parallelization).
      */
     TasksParallelScheme tasks_parallel_scheme;
+
+    /**
+     * Minimum grain size for parallel tasks. Only used if
+     * `tasks_parallel_scheme` is not 'none'. Default is 1.
+     * Note: this is not strictly enforced. Smaller tasks may
+     * still be created. This however will happen only in case where there are
+     * no patches left to form larger than the specified grain size.
+     */
+    std::size_t minimum_grain_size;
   };
 
 
@@ -605,6 +624,14 @@ public:
    * function or lambda that defines the operation to be performed on a range
    * of patches.
    *
+   * Note: in some settings the `patch_worker` may be invoked for every single
+   * patch (rather than once per coarser work-range). For this reason the
+   * callable should preferably be inlineable and cheap to invoke. If large
+   * temporary data structures are required, allocate and initialize them once
+   * before calling this loop as thread-local/per-thread storage and index
+   * them using the provided thread id; avoid allocating such temporaries on
+   * each `patch_worker` invocation.
+   *
    * @tparam OutVector The type of the output/solution vector.
    * @tparam InVector The type of the input/rhs vector.
    * @tparam PatchWorker A callable object (e.g., a lambda) that implements
@@ -614,7 +641,7 @@ public:
    PatchStorage<MFType> &, OutVector &, const InVector &, const PatchRange &)>
    * @param patch_worker The function to execute for each patch range. It
    * takes the `PatchStorage` instance, output vector, input vector, and the
-   * `PatchRange` as arguments. Additially it receives the ID of the thread
+   * `PatchRange` as arguments. Additionally it receives the ID of the thread
    * executing the function, which can be used to index into thread-local
    * storage.
    * @param solution The output/solution vector. Its ghost values will be
@@ -684,6 +711,14 @@ public:
    */
   std::size_t
   n_patches() const;
+
+
+  /**
+   *  Returns the number of threads that will be used for parallel processing
+   * within `patch_loop`.
+   */
+  std::size_t
+  n_threads() const;
 
 
   /**
@@ -1016,11 +1051,61 @@ PatchStorage<MFType>::patch_loop(const PatchWorker &patch_worker,
         }
       if (regular_patches[cat].size() != 0)
         {
-          PatchRange patch_range(current_begin,
-                                 current_begin + regular_patches[cat].size());
-          patch_worker(*this, solution, rhs, patch_range, 0 /*Fixme!*/);
+          if (additional_data.tasks_parallel_scheme == AdditionalData::none)
+            {
+              PatchRange patch_range(current_begin,
+                                     current_begin +
+                                       regular_patches[cat].size());
+              patch_worker(*this, solution, rhs, patch_range, 0 /*thread_id*/);
 
-          current_begin += regular_patches[cat].size();
+              current_begin += regular_patches[cat].size();
+            }
+          else if (additional_data.tasks_parallel_scheme ==
+                   AdditionalData::by_color)
+            {
+#  ifdef DEAL_II_WITH_TBB
+              const auto &thread_ranges = thread_ranges_per_category[cat];
+              for (unsigned color_idx = 0; color_idx != thread_ranges.size();
+                   ++color_idx)
+                {
+                  const auto  &current_range = thread_ranges[color_idx];
+                  const size_t range_start   = current_range.first;
+                  const size_t range_end     = current_range.second;
+
+                  size_t grain_size = 50; // Tuning parameter
+
+                  tbb::parallel_for(
+                    tbb::blocked_range<size_t>(range_start,
+                                               range_end,
+                                               grain_size),
+                    [&](const tbb::blocked_range<size_t> &r) {
+                      // Construct the PatchRange expected by the worker
+                      // (Assuming PatchRange is a pair/struct of indices)
+                      const auto sub_range =
+                        std::make_pair(r.begin() + current_begin,
+                                       r.end() + current_begin);
+
+                      // Get a linear thread ID for TLS indexing.
+                      // Note: In very old TBB versions this didn't exist,
+                      // but it is standard in modern deal.II environments.
+                      const unsigned int thread_id =
+                        tbb::this_task_arena::current_thread_index();
+
+                      // Execute the user-provided worker
+                      patch_worker(this->patch_storage, // Access to patch data
+                                   solution,
+                                   rhs,
+                                   sub_range,
+                                   thread_id);
+                    });
+                }
+#  else
+              AssertThrow(
+                false,
+                ExcMessage(
+                  "TBB support is required for by_color parallel scheme."));
+#  endif
+            }
         }
     }
 
