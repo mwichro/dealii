@@ -37,14 +37,13 @@
 #include <deal.II/matrix_free/operators.h>
 #include <deal.II/matrix_free/patch_storage.h>
 
-#include "../tests.h"
-
-// Standard headers needed for the "Soft Sanitizer"
 #include <atomic>
 #include <chrono>
 #include <memory>
 #include <thread>
 #include <vector>
+
+#include "../tests.h"
 
 
 template <int dim>
@@ -54,7 +53,6 @@ test()
   // 1. Generate triangulation
   Triangulation<dim> triangulation(
     Triangulation<dim>::limit_level_difference_at_vertices);
-
 
   const unsigned int test_level = 4;
 
@@ -112,28 +110,31 @@ test()
   const unsigned int n_cell_batches   = mf_level_storage->n_cell_batches();
   const unsigned int total_cell_slots = n_cell_batches * n_lanes;
 
-  // We use a unique_ptr to an array of atomics because std::vector<std::atomic>
-  // is not copyable/movable and hard to manage in standard containers.
-  // 0 = Unlocked, 1 = Locked
+  // Use a unique_ptr to avoid large stack allocations or std::vector issues
+  // with atomics
   auto cell_locks = std::make_unique<std::atomic<int>[]>(total_cell_slots);
 
-  // Initialize locks to 0
+  // Initialize locks to 0 (Unlocked)
   for (unsigned int i = 0; i < total_cell_slots; ++i)
     cell_locks[i].store(0);
 
   // Global flag to stop the test immediately if a race occurs
   std::atomic<bool> race_detected(false);
 
-  // Dummy vectors for the interface (not used for calculation)
+  // Dummy vectors
   LinearAlgebra::distributed::Vector<double> solution, rhs;
   mf_level_storage->initialize_dof_vector(solution);
   mf_level_storage->initialize_dof_vector(rhs);
 
-  // Helper to artificially widen the race window
+  // STRICT HELPER: Busy Wait
+  // We do NOT use sleep_for. Sleep yields the CPU.
+  // We want to hold the CPU core to force physical overlap with other threads.
   auto burn_cycles = []() {
-    // Sleep for a tiny amount of time (e.g., 20 microseconds) to allow
-    // other threads to potentially collide with us if the coloring is wrong.
-    std::this_thread::sleep_for(std::chrono::microseconds(20));
+    volatile int x = 0;
+    // 5000 iterations is enough to create a window for collision
+    // without freezing the test for too long.
+    for (int i = 0; i < 5000; ++i)
+      x++;
   };
 
   // 7. Define the Race Detector Worker
@@ -145,43 +146,44 @@ test()
         const unsigned int /*thread_id*/) {
       for (unsigned int i = range.first; i < range.second; ++i)
         {
-          // If another thread failed, stop working
           if (race_detected.load(std::memory_order_relaxed))
             return;
 
           const auto &patch = patches.get_regular_patch(i);
+          const auto &cells = patch.get_cells();
 
           // --- LOCK PHASE ---
-          // Try to acquire exclusive access to all cells in this patch
-          for (const auto &cell_idx : patch.get_cells())
+          for (const auto &cell_idx : cells)
             {
+              // Safety check to ensure we don't segfault on invalid indices
+              Assert(cell_idx < total_cell_slots,
+                     ExcMessage("Cell index out of bounds for atomic array."));
+
               int expected = 0;
-              // atomic::compare_exchange_strong
-              // if cell_locks[cell_idx] == 0 (expected), set to 1, return true.
-              // if cell_locks[cell_idx] == 1, return false.
+              // Try to switch 0 -> 1.
+              // memory_order_acquire ensures we see up-to-date values from
+              // other threads
               bool success = cell_locks[cell_idx].compare_exchange_strong(
                 expected, 1, std::memory_order_acquire);
 
               if (!success)
                 {
-                  // RACE CONDITION DETECTED!
-                  // This implies another thread is currently processing this
-                  // cell.
-                  deallog << "RACE DETECTED: Thread collision on cell index "
-                          << cell_idx << std::endl;
+                  deallog << "RACE DETECTED: Collision on cell index "
+                          << cell_idx << " in patch " << i << std::endl;
                   race_detected.store(true);
                   return;
                 }
             }
 
-          // --- CRITICAL SECTION SIMULATION ---
-          // Hold the locks for a moment to stress test the coloring
+          // --- STRICT CRITICAL SECTION ---
+          // Keep the lock held while burning CPU cycles.
           burn_cycles();
 
           // --- UNLOCK PHASE ---
-          // Release access to the cells
-          for (const auto &cell_idx : patch.get_cells())
+          for (const auto &cell_idx : cells)
             {
+              // memory_order_release ensures our lock release is visible to
+              // others
               cell_locks[cell_idx].store(0, std::memory_order_release);
             }
         }
@@ -217,9 +219,6 @@ main(int argc, char **argv)
   Utilities::MPI::MPI_InitFinalize mpi_init(argc, argv, -1);
 
   initlog();
-
-  // Ensure TBB is active and has enough threads for a valid test
-  // (Assuming global control via environment or deal.II defaults)
 
   deallog << "Running Atomic Race Detector in 2D..." << std::endl;
   test<2>();
