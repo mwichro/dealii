@@ -1092,7 +1092,7 @@ PatchStorage<MFType>::patch_loop(const PatchWorker &patch_worker,
                         tbb::this_task_arena::current_thread_index();
 
                       // Execute the user-provided worker
-                      patch_worker(this->patch_storage, // Access to patch data
+                      patch_worker(*this, // Access to patch data
                                    solution,
                                    rhs,
                                    sub_range,

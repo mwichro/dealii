@@ -1,0 +1,8 @@
+
+DEAL::Running Atomic Race Detector in 2D...
+DEAL::Running race detection with multiple threads.
+DEAL::No race conditions detected.
+DEAL::Running Atomic Race Detector in 3D...
+DEAL::Running race detection with multiple threads.
+DEAL::No race conditions detected.
+DEAL::Tests finished.
