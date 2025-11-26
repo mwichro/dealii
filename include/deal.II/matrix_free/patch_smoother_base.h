@@ -78,11 +78,11 @@ public:
    * @param patch_range The range of patches to process in this call.
    */
   virtual void
-  local_apply(const PatchStorageType                      &patch_storage,
-              VectorType                                  &dst,
-              const VectorType                            &src,
-              const typename PatchStorageType::PatchRange &patch_range,
-              const unsigned int                          &thread_id) const = 0;
+  local_apply(
+    const PatchStorageType                      &patch_storage,
+    VectorType                                  &dst,
+    const VectorType                            &src,
+    const typename PatchStorageType::PatchRange &patch_range) const = 0;
 
 
   /**
@@ -210,9 +210,8 @@ PatchSmootherBase<dim, number>::step(VectorType       &dst,
     [&](const PatchStorageType                      &patch_storage,
         VectorType                                  &dst,
         const VectorType                            &src,
-        const typename PatchStorageType::PatchRange &patch_range,
-        const unsigned int                          &thread_id) {
-      local_apply(patch_storage, dst, src, patch_range, thread_id);
+        const typename PatchStorageType::PatchRange &patch_range) {
+      local_apply(patch_storage, dst, src, patch_range);
     },
     dst,
     src,
@@ -238,9 +237,8 @@ PatchSmootherBase<dim, number>::Tstep(VectorType       &dst,
     [&](const PatchStorageType                      &patch_storage,
         VectorType                                  &dst,
         const VectorType                            &src,
-        const typename PatchStorageType::PatchRange &patch_range,
-        const unsigned int                          &thread_id) {
-      local_apply(patch_storage, dst, src, patch_range, thread_id);
+        const typename PatchStorageType::PatchRange &patch_range) {
+      local_apply(patch_storage, dst, src, patch_range);
     },
     dst,
     src,

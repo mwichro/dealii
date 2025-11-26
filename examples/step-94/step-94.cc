@@ -288,14 +288,12 @@ namespace Operators
      * @param dst The global solution vector (input/output).
      * @param src The global right-hand side vector (input).
      * @param patch_range The range of patch indices to process.
-     * @param thread_id_dummy ID of the thread executing this function. This
-     * can be used to index into thread-local  storage.
      */
-    void local_apply(const PatchStorageType                      &patch_storage,
-                     VectorType                                  &dst,
-                     const VectorType                            &src,
-                     const typename PatchStorageType::PatchRange &patch_range,
-                     const unsigned int &thread_id_dummy) const override;
+    void local_apply(
+      const PatchStorageType                      &patch_storage,
+      VectorType                                  &dst,
+      const VectorType                            &src,
+      const typename PatchStorageType::PatchRange &patch_range) const override;
 
     /**
      *
@@ -451,12 +449,10 @@ namespace Operators
     const PatchStorageType &patch_storage,
     VectorType             &dst, // Global solution vector (input/output)
     const VectorType       &src, // Global right-hand side vector (input)
-    const typename PatchStorageType::PatchRange
-                       &patch_range, // Range of patches to process
-    const unsigned int &thread_id_dummy) const
+    const typename PatchStorageType::PatchRange &patch_range
+    // Range of patches to process
+  ) const
   {
-    (void)thread_id_dummy; // to suppress unused variable warning
-
     // Type alias for the FEPatchEvaluation, which handles operations across
     // the cells within a patch, including data gathering and scattering.
     // Moving values between patches vector and individual cell vectors, handled
@@ -520,23 +516,22 @@ namespace Operators
         patch_eval.read_dof_values(dst);
         // Loop through the FEEvaluation objects (one for each cell batch in the
         // patch).
+        // - Evaluate gradients of the current solution at quadrature points.
+        // - Submit these gradients for integration (standard Laplace weak
+        // form).
+        // - Perform the integration (test function gradients against
+        // submitted gradients).
         for (auto &phi : patch_eval.fe_evaluations)
           {
-            // Evaluate gradients of the current solution at quadrature points.
             phi.evaluate(EvaluationFlags::gradients);
-            // Submit these gradients for integration (standard Laplace weak
-            // form).
             for (unsigned int q = 0; q < phi.n_q_points; ++q)
               phi.submit_gradient(phi.get_gradient(q), q);
-            // Perform the integration (test function gradients against
-            // submitted gradients).
             phi.integrate(EvaluationFlags::gradients);
-            // The results of the local operator application (A_cell * u_cell)
-            // are now stored within each 'phi' object.
           }
 
-        // Collect the results of the local operator application from the cells
-        // into the 'local_residual' vector for the patch.
+        // The results of the local operator application (A_cell * u_cell)
+        // are now stored within each 'phi' object. We need to collect these
+        // results into the contiguous 'local_residual' vector for the patch.
         patch_eval.collect_local_to_patch(ArrayView<double>(local_residual));
 
         // --- Step 3: Compute the actual residual on the patch ---
@@ -554,8 +549,6 @@ namespace Operators
         patch_inverse_operator.apply_inverse(
           ArrayView<number>(local_correction.data(), n_dofs_interior),
           ArrayView<const number>(local_residual.data(), n_dofs_interior));
-
-        // inverse.vmult(local_correction, local_residual);
 
         // --- Step 5: Update the solution ---
         // The standard smoother update is: u_new = u_old + correction

@@ -636,14 +636,13 @@ public:
    * @tparam InVector The type of the input/rhs vector.
    * @tparam PatchWorker A callable object (e.g., a lambda) that implements
    * the patch-wise operation. It receives the `PatchStorage` instance,
-   * solution and RHS vectors, a `PatchRange` indicating the subset of patches
-   * to process, and a thread ID. For example, const std::function<void(const
+   * solution and RHS vectors and a `PatchRange` indicating the subset of
+   patches
+   * to process. For example, const std::function<void(const
    PatchStorage<MFType> &, OutVector &, const InVector &, const PatchRange &)>
    * @param patch_worker The function to execute for each patch range. It
    * takes the `PatchStorage` instance, output vector, input vector, and the
-   * `PatchRange` as arguments. Additionally it receives the ID of the thread
-   * executing the function, which can be used to index into thread-local
-   * storage.
+   * `PatchRange` as arguments.
    * @param solution The output/solution vector. Its ghost values will be
    * updated during the loop.
    * @param rhs The input/rhs vector. Its ghost values must be up-to-date
@@ -719,6 +718,21 @@ public:
    */
   std::size_t
   n_threads() const;
+
+
+  /**
+   * Checks if multithreading support is available (e.g., deal.II has been
+   * configured with TBB enabled).
+   */
+  static constexpr bool
+  is_multithreading_supported();
+
+
+  /**
+   * Get current thread ID for use in thread-local storage indexing.
+   */
+  static constexpr std::size_t
+  get_current_thread_id();
 
 
   /**
@@ -988,6 +1002,32 @@ PatchStorage<MFType>::index2batch(const CellIndex &cell_index) const
 
 
 template <class MFType>
+constexpr bool
+PatchStorage<MFType>::is_multithreading_supported()
+{
+#  ifdef DEAL_II_WITH_TBB
+  return true;
+#  else
+  return false;
+#  endif
+}
+
+
+
+template <class MFType>
+constexpr std::size_t
+PatchStorage<MFType>::get_current_thread_id()
+{
+#  ifdef DEAL_II_WITH_TBB
+  return tbb::this_task_arena::current_thread_index();
+#  else
+  return 0;
+#  endif
+}
+
+
+
+template <class MFType>
 template <typename number>
 void
 PatchStorage<MFType>::adjust_ghost_range_if_necessary(
@@ -1023,11 +1063,10 @@ PatchStorage<MFType>::patch_loop(const PatchWorker &patch_worker,
                           const PatchStorage<MFType> &,
                           OutVector &,
                           const InVector &,
-                          PatchRange,
-                          unsigned int>,
+                          PatchRange>,
     "The provided PatchWorker must be a callable with a signature compatible "
     "with void(const PatchStorage<MFType> &, OutVector &, const InVector &, "
-    "PatchRange, unsigned int).");
+    "PatchRange).");
 
   adjust_ghost_range_if_necessary(0, rhs);
   adjust_ghost_range_if_necessary(0, solution);
@@ -1056,7 +1095,7 @@ PatchStorage<MFType>::patch_loop(const PatchWorker &patch_worker,
               PatchRange patch_range(current_begin,
                                      current_begin +
                                        regular_patches[cat].size());
-              patch_worker(*this, solution, rhs, patch_range, 0 /*thread_id*/);
+              patch_worker(*this, solution, rhs, patch_range);
 
               current_begin += regular_patches[cat].size();
             }
@@ -1072,7 +1111,7 @@ PatchStorage<MFType>::patch_loop(const PatchWorker &patch_worker,
                   const size_t range_start   = current_range.first;
                   const size_t range_end     = current_range.second;
 
-                  size_t grain_size = 50; // Tuning parameter
+                  size_t grain_size = additional_data.minimum_grain_size;
 
                   tbb::parallel_for(
                     tbb::blocked_range<size_t>(range_start,
@@ -1085,18 +1124,11 @@ PatchStorage<MFType>::patch_loop(const PatchWorker &patch_worker,
                         std::make_pair(r.begin() + current_begin,
                                        r.end() + current_begin);
 
-                      // Get a linear thread ID for TLS indexing.
-                      // Note: In very old TBB versions this didn't exist,
-                      // but it is standard in modern deal.II environments.
-                      const unsigned int thread_id =
-                        tbb::this_task_arena::current_thread_index();
-
                       // Execute the user-provided worker
                       patch_worker(*this, // Access to patch data
                                    solution,
                                    rhs,
-                                   sub_range,
-                                   thread_id);
+                                   sub_range);
                     });
                 }
 #  else

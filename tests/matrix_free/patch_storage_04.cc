@@ -139,11 +139,11 @@ test()
 
   // 7. Define the Race Detector Worker
   const auto patch_worker =
-    [&](const PatchStorage<MatrixFree<dim, double>> &patches,
-        LinearAlgebra::distributed::Vector<double> & /*dst*/,
-        const LinearAlgebra::distributed::Vector<double> & /*src*/,
-        const typename PatchStorage<MatrixFree<dim, double>>::PatchRange &range,
-        const unsigned int /*thread_id*/) {
+    [&](
+      const PatchStorage<MatrixFree<dim, double>> &patches,
+      LinearAlgebra::distributed::Vector<double> & /*dst*/,
+      const LinearAlgebra::distributed::Vector<double> & /*src*/,
+      const typename PatchStorage<MatrixFree<dim, double>>::PatchRange &range) {
       for (unsigned int i = range.first; i < range.second; ++i)
         {
           if (race_detected.load(std::memory_order_relaxed))
