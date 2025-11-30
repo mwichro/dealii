@@ -1,12 +1,12 @@
 // ------------------------------------------------------------------------
 //
-// SPDX-License-Identifier: LGPL-2.1-or-later
+// SPDX-License-Identifier: LGPL-2.0-or-later
 // Copyright (C) 2025 by the deal.II authors
 //
 // This file is part of the deal.II library.
 //
 // Part of the source code is dual licensed under Apache-2.0 WITH
-// LLVM-exception OR LGPL-2.1-or-later. Detailed license information
+// LLVM-exception OR LGPL-2.0-or-later. Detailed license information
 // governing the source code and code contributions can be found in
 // LICENSE.md and CONTRIBUTING.md at the top level directory of deal.II.
 //
@@ -22,6 +22,7 @@
 #include <deal.II/base/enable_observer_pointer.h>
 #include <deal.II/base/graph_coloring.h>
 #include <deal.II/base/iterator_range.h>
+#include <deal.II/base/memory_consumption.h>
 #include <deal.II/base/partitioner.h>
 #include <deal.II/base/types.h>
 
@@ -48,6 +49,10 @@
 #  include <tbb/task_arena.h>
 #endif
 
+
+#if defined(_OPENMP)
+#  include <omp.h>
+#endif
 
 
 DEAL_II_NAMESPACE_OPEN
@@ -99,6 +104,12 @@ namespace internal
       determine_cell_partition(const unsigned int &)
       {
         return 0;
+      }
+
+      std::size_t
+      memory_consumption() const
+      {
+        return sizeof(*this);
       }
     };
 
@@ -329,6 +340,15 @@ struct RegularVertexPatch : public VertexPatchBase<dim>
     return false;
   }
 
+  /**
+   * Return the memory consumption of this class.
+   */
+  std::size_t
+  memory_consumption() const
+  {
+    return sizeof(*this);
+  }
+
 private:
   std::array<CellIndex, n_cells>       cells;
   std::array<CellOrientation, n_cells> orientations;
@@ -399,6 +419,17 @@ struct GeneralVertexPatch : public VertexPatchBase<dim>
   get_cells_vector() const override
   {
     return cells;
+  }
+
+
+  /**
+   * Return the memory consumption of this class.
+   */
+  std::size_t
+  memory_consumption() const
+  {
+    return sizeof(*this) + MemoryConsumption::memory_consumption(cells) -
+           sizeof(cells);
   }
 
 private:
@@ -721,6 +752,13 @@ public:
 
 
   /**
+   * Return the memory consumption of this class.
+   */
+  std::size_t
+  memory_consumption() const;
+
+
+  /**
    * Checks if multithreading support is available (e.g., deal.II has been
    * configured with TBB enabled).
    */
@@ -1002,10 +1040,43 @@ PatchStorage<MFType>::index2batch(const CellIndex &cell_index) const
 
 
 template <class MFType>
+std::size_t
+PatchStorage<MFType>::memory_consumption() const
+{
+  std::size_t memory = sizeof(*this);
+  for (const auto &regular_patch : regular_patches)
+    memory += MemoryConsumption::memory_consumption(regular_patch) -
+              sizeof(regular_patch);
+  for (const auto &range : thread_ranges_per_category)
+    memory += MemoryConsumption::memory_consumption(range) - sizeof(range);
+  for (const auto &cat : regular_patch_categories)
+    memory += MemoryConsumption::memory_consumption(cat) - sizeof(cat);
+  for (const auto &other_patch : other_patches)
+    memory +=
+      MemoryConsumption::memory_consumption(other_patch) - sizeof(other_patch);
+
+  memory +=
+    MemoryConsumption::memory_consumption(partitioners) - sizeof(partitioners);
+  for (const auto &partitioner : partitioners)
+    if (partitioner)
+      memory += partitioner->memory_consumption();
+
+  memory += MemoryConsumption::memory_consumption(process_colors) -
+            sizeof(process_colors);
+  memory +=
+    MemoryConsumption::memory_consumption(task_infos) - sizeof(task_infos);
+
+  return memory;
+}
+
+
+template <class MFType>
 constexpr bool
 PatchStorage<MFType>::is_multithreading_supported()
 {
-#  ifdef DEAL_II_WITH_TBB
+#  if defined(DEAL_II_WITH_TBB)
+  return true;
+#  elif defined(_OPENMP)
   return true;
 #  else
   return false;
@@ -1018,8 +1089,10 @@ template <class MFType>
 constexpr std::size_t
 PatchStorage<MFType>::get_current_thread_id()
 {
-#  ifdef DEAL_II_WITH_TBB
+#  if defined(DEAL_II_WITH_TBB)
   return tbb::this_task_arena::current_thread_index();
+#  elif defined(_OPENMP)
+  return static_cast<std::size_t>(omp_get_thread_num());
 #  else
   return 0;
 #  endif
@@ -1099,17 +1172,14 @@ PatchStorage<MFType>::patch_loop(const PatchWorker &patch_worker,
 
               current_begin += regular_patches[cat].size();
             }
-          else if (additional_data.tasks_parallel_scheme ==
-                   AdditionalData::by_color)
+          if (additional_data.tasks_parallel_scheme == AdditionalData::by_color)
             {
 #  ifdef DEAL_II_WITH_TBB
               const auto &thread_ranges = thread_ranges_per_category[cat];
-              for (unsigned color_idx = 0; color_idx != thread_ranges.size();
-                   ++color_idx)
+              for (const auto &current_range : thread_ranges)
                 {
-                  const auto  &current_range = thread_ranges[color_idx];
-                  const size_t range_start   = current_range.first;
-                  const size_t range_end     = current_range.second;
+                  const size_t range_start = current_range.first;
+                  const size_t range_end   = current_range.second;
 
                   size_t grain_size = additional_data.minimum_grain_size;
 
@@ -1131,12 +1201,30 @@ PatchStorage<MFType>::patch_loop(const PatchWorker &patch_worker,
                                    sub_range);
                     });
                 }
+#  elif defined(_OPENMP)
+              const auto &thread_ranges = thread_ranges_per_category[cat];
+              for (const auto &current_range : thread_ranges)
+                {
+                  const size_t range_start = current_range.first;
+                  const size_t range_end   = current_range.second;
+
+                  // OpenMP parallel for loop
+#    pragma omp parallel for schedule(static)
+                  for (size_t i = range_start; i < range_end; ++i)
+                    {
+                      const auto sub_range =
+                        std::make_pair(i + current_begin,
+                                       i + 1 + current_begin);
+                      patch_worker(*this, solution, rhs, sub_range);
+                    }
+                }
 #  else
               AssertThrow(
                 false,
                 ExcMessage(
-                  "TBB support is required for by_color parallel scheme."));
+                  "TBB or OpenMP support is required for by_color parallel scheme."));
 #  endif
+              current_begin += regular_patches[cat].size();
             }
         }
     }

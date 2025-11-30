@@ -20,6 +20,10 @@
 
 #include <fstream>
 
+#if defined(_OPENMP)
+#  include <omp.h>
+#endif
+
 DEAL_II_NAMESPACE_OPEN
 
 namespace internal
@@ -612,7 +616,15 @@ PatchStorage<MFType>::n_threads() const
   if (additional_data.tasks_parallel_scheme == AdditionalData::none)
     return 1;
   else
-    return MultithreadInfo::n_threads();
+    {
+#ifdef DEAL_II_WITH_TBB
+      return static_cast<std::size_t>(MultithreadInfo::n_threads());
+#elif defined(_OPENMP)
+      return static_cast<std::size_t>(omp_get_max_threads());
+#else
+      return 1;
+#endif
+    }
 }
 
 
